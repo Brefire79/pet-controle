@@ -999,6 +999,17 @@
         }
     }
 
+    // Segurança: escapa dados do usuário antes de injetar via innerHTML (anti-XSS).
+    function esc(v) {
+        if (v === null || v === undefined) return '';
+        return String(v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function formatDateBR(dateString) {
         if(!dateString) return '';
         const [year, month, day] = dateString.split('T')[0].split('-');
@@ -1216,7 +1227,7 @@
                 <span class="dose-chip ${doseChipClass(tStatus)}">${tStatus.overdue ? 'Atrasada' : tStatus.due ? 'Agora' : 'No prazo'}</span>
             </div>
             <p class="hero-count mb-1">${tStatus.label.replace(/^Próxima em |^Atrasada /,'').replace('Dar agora','AGORA').replace('Dar 1ª dose','1ª DOSE') || 'AGORA'}</p>
-            <p class="font-bold text-lg">${top.nome} <span class="font-normal" style="opacity:.7">· ${top.dose}</span></p>
+            <p class="font-bold text-lg">${esc(top.nome)} <span class="font-normal" style="opacity:.7">· ${esc(top.dose)}</span></p>
             <p class="text-sm mb-4" style="opacity:.6">${freqOf(top)} · dose ${tInfo.tomadas+ (tInfo.completo?0:1)} de ${tInfo.totalDoses}</p>
             <button onclick="abrirModalDose(${top.id})" class="w-full font-bold rounded-full py-3 transition" style="background:#fff;color:var(--ink)"><i data-lucide="check" class="w-4 h-4 inline -mt-0.5"></i> Registrar dose</button>
         </div>`;
@@ -1229,7 +1240,7 @@
             <div class="apple-card flex flex-col p-4">
                 <div class="flex items-center justify-between gap-3 mb-3">
                     <div class="min-w-0">
-                        <h4 class="font-bold truncate">${med.nome} <span class="font-normal text-sm" style="color:var(--text-secondary)">· ${med.dose}</span></h4>
+                        <h4 class="font-bold truncate">${esc(med.nome)} <span class="font-normal text-sm" style="color:var(--text-secondary)">· ${esc(med.dose)}</span></h4>
                         <span class="dose-chip ${doseChipClass(status)} mt-1"><i data-lucide="${status.due ? 'alarm-clock' : 'clock'}" class="w-3 h-3"></i>${status.label}</span>
                     </div>
                     <button class="apple-btn-primary shrink-0" style="width:auto;padding:10px 16px;font-size:14px" onclick="abrirModalDose(${med.id})">${status.due ? 'Dar dose' : 'Registrar'}</button>
@@ -1251,12 +1262,12 @@
         const vacinasOrdenadas = [...appData.vacinas].sort((a,b) => new Date(b.dataAplicacao) - new Date(a.dataAplicacao));
 
         vacinasOrdenadas.forEach(vac => {
-            let vetHtml = vac.veterinario ? `<p class="text-xs text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> Vet: ${vac.veterinario}</p>` : '';
+            let vetHtml = vac.veterinario ? `<p class="text-xs text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> Vet: ${esc(vac.veterinario)}</p>` : '';
             
             htmlList += `
             <div class="apple-card p-4 flex justify-between items-center bg-white relative group">
                 <div>
-                    <h4 class="font-semibold text-gray-800">${vac.nome}</h4>
+                    <h4 class="font-semibold text-gray-800">${esc(vac.nome)}</h4>
                     <p class="text-sm text-gray-500">Aplicada em: ${formatDateBR(vac.dataAplicacao)}</p>
                     ${vetHtml}
                 </div>
@@ -1290,7 +1301,7 @@
                     <div class="apple-card mb-3 border-l-4 ${statusClass}">
                         <div class="flex justify-between items-center">
                             <div>
-                                <h3 class="font-bold text-gray-900">${vac.nome} <span class="text-xs font-normal text-gray-500 ml-1">Reforço</span></h3>
+                                <h3 class="font-bold text-gray-900">${esc(vac.nome)} <span class="text-xs font-normal text-gray-500 ml-1">Reforço</span></h3>
                                 <p class="text-sm font-medium ${colorText} mt-1">${statusText} (${formatDateBR(vac.dataReforco)})</p>
                             </div>
                             <button onclick="registrarReforco(${vac.id})" class="text-xs bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-full font-semibold shadow-sm hover:bg-gray-50 transition shrink-0">
@@ -1340,9 +1351,9 @@
                 <div class="flex justify-between items-start gap-3 mb-4">
                     <div class="min-w-0">
                         <p class="eyebrow mb-1">${med.active ? 'Em tratamento' : 'Concluído'} · ${freqText}</p>
-                        <h4 class="font-bold text-xl truncate" style="color:var(--ink)">${med.nome}</h4>
+                        <h4 class="font-bold text-xl truncate" style="color:var(--ink)">${esc(med.nome)}</h4>
                         <div class="flex items-center gap-2 mt-1.5">
-                            <span class="font-mono text-xs px-2 py-0.5 rounded" style="background:rgba(26,23,20,0.06);color:var(--text-secondary)">${med.dose}</span>
+                            <span class="font-mono text-xs px-2 py-0.5 rounded" style="background:rgba(26,23,20,0.06);color:var(--text-secondary)">${esc(med.dose)}</span>
                             <span class="font-mono text-xs" style="color:var(--text-secondary)">${med.diasTotais}d</span>
                         </div>
                     </div>
@@ -1374,7 +1385,7 @@
                             <div class="flex items-center justify-between text-sm">
                                 <span class="flex items-center gap-2" style="color:var(--text-secondary)">
                                     <i data-lucide="check" class="w-3.5 h-3.5" style="color:var(--vital)"></i>
-                                    <span class="font-mono text-xs">${formatDateTimeBR(d.ts)}</span>${d.imported ? ' <span class="text-xs" style="opacity:.5">(importado)</span>' : ''}${d.nota ? ` <span class="text-xs italic">— ${d.nota}</span>` : ''}
+                                    <span class="font-mono text-xs">${formatDateTimeBR(d.ts)}</span>${d.imported ? ' <span class="text-xs" style="opacity:.5">(importado)</span>' : ''}${d.nota ? ` <span class="text-xs italic">— ${esc(d.nota)}</span>` : ''}
                                 </span>
                                 ${idx === 0 && med.active ? `<button onclick="desfazerUltimaDose(${med.id})" class="text-xs font-mono font-bold" style="color:var(--danger)">desfazer</button>` : ''}
                             </div>
@@ -1506,10 +1517,10 @@
                         </div>
                         <div>
                             <div class="flex items-center gap-2">
-                                <h4 class="font-bold text-gray-900">${alim.nome}</h4>
+                                <h4 class="font-bold text-gray-900">${esc(alim.nome)}</h4>
                                 ${isCurrent ? '<span class="bg-green-100 text-green-700 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Atual</span>' : ''}
                             </div>
-                            <p class="text-sm text-gray-600 mt-1"><span class="font-medium">Quantidade:</span> ${alim.quantidade}</p>
+                            <p class="text-sm text-gray-600 mt-1"><span class="font-medium">Quantidade:</span> ${esc(alim.quantidade)}</p>
                             <p class="text-xs text-gray-400 mt-1">Registrado em: ${formatDateBR(alim.data)}</p>
                         </div>
                     </div>
@@ -1541,10 +1552,10 @@
                     </div>
                     <div class="flex-1">
                         <div class="flex justify-between items-start">
-                            <h4 class="font-bold text-gray-900">${reg.tipo}</h4>
+                            <h4 class="font-bold text-gray-900">${esc(reg.tipo)}</h4>
                             <span class="text-xs text-gray-400">${formatDateBR(reg.data)}</span>
                         </div>
-                        <p class="text-sm text-gray-600 mt-1">${reg.desc}</p>
+                        <p class="text-sm text-gray-600 mt-1">${esc(reg.desc)}</p>
                     </div>
                     <button onclick="apagarItem('registros', ${reg.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
@@ -1754,11 +1765,11 @@
         pdfContainer.innerHTML = `
             <div style="text-align: center; margin-bottom: 30px;">
                 <h1 style="color: #0071E3; margin-bottom: 5px;">Prontuário de Saúde Pet</h1>
-                <h2 style="margin: 0; font-size: 24px;">${appData.perfil.nome || 'Meu Pet'}</h2>
+                <h2 style="margin: 0; font-size: 24px;">${esc(appData.perfil.nome) || 'Meu Pet'}</h2>
             </div>
-            
+
             <div style="background: #f5f5f7; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
-                <p style="margin: 5px 0;"><strong>Espécie/Raça:</strong> ${appData.perfil.raca || 'Não informado'}</p>
+                <p style="margin: 5px 0;"><strong>Espécie/Raça:</strong> ${esc(appData.perfil.raca) || 'Não informado'}</p>
                 <p style="margin: 5px 0;"><strong>Nascimento:</strong> ${formatDateBR(appData.perfil.nascimento) || 'Não informado'} ${appData.perfil.nascimento ? '('+calcularIdade(appData.perfil.nascimento)+')' : ''}</p>
                 <p style="margin: 5px 0;"><strong>Castração:</strong> ${appData.perfil.castracao ? formatDateBR(appData.perfil.castracao) : 'Não informado'}</p>
                 <p style="margin: 5px 0;"><strong>Último Peso:</strong> ${appData.pesos.length > 0 ? appData.pesos[0].valor + ' kg' : 'Sem registros'}</p>
@@ -1766,12 +1777,12 @@
 
             <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px;">Vacinas</h3>
             <ul style="padding-left: 20px;">
-                ${appData.vacinas.map(v => `<li style="margin-bottom: 5px;"><strong>${v.nome}</strong> - Aplicada em: ${formatDateBR(v.dataAplicacao)} ${v.veterinario ? '(Vet: '+v.veterinario+')' : ''}</li>`).join('') || '<li>Nenhuma vacina registrada</li>'}
+                ${appData.vacinas.map(v => `<li style="margin-bottom: 5px;"><strong>${esc(v.nome)}</strong> - Aplicada em: ${formatDateBR(v.dataAplicacao)} ${v.veterinario ? '(Vet: '+esc(v.veterinario)+')' : ''}</li>`).join('') || '<li>Nenhuma vacina registrada</li>'}
             </ul>
 
             <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Ocorrências Clínicas e Exames</h3>
             <ul style="padding-left: 20px;">
-                ${appData.registros.map(r => `<li style="margin-bottom: 10px;"><strong>${formatDateBR(r.data)} - ${r.tipo}:</strong><br> ${r.desc}</li>`).join('') || '<li>Nenhum registro clínico</li>'}
+                ${appData.registros.map(r => `<li style="margin-bottom: 10px;"><strong>${formatDateBR(r.data)} - ${esc(r.tipo)}:</strong><br> ${esc(r.desc)}</li>`).join('') || '<li>Nenhum registro clínico</li>'}
             </ul>
 
             <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Histórico de Tratamentos</h3>
@@ -1779,9 +1790,9 @@
                 ${appData.medicamentos.map(m => {
                     const info = getDosesInfo(m);
                     const dosesLog = (m.doses && m.doses.length)
-                        ? `<div style="font-size: 12px; color: #555; margin-top: 4px;"><strong>Doses ministradas (${m.doses.length}/${info.totalDoses}):</strong><br>${m.doses.map(d => formatDateTimeBR(d.ts) + (d.imported ? ' (importado)' : '') + (d.nota ? ' — ' + d.nota : '')).join('<br>')}</div>`
+                        ? `<div style="font-size: 12px; color: #555; margin-top: 4px;"><strong>Doses ministradas (${m.doses.length}/${info.totalDoses}):</strong><br>${m.doses.map(d => formatDateTimeBR(d.ts) + (d.imported ? ' (importado)' : '') + (d.nota ? ' — ' + esc(d.nota) : '')).join('<br>')}</div>`
                         : '<div style="font-size: 12px; color: #999; margin-top: 4px;">Nenhuma dose registrada.</div>';
-                    return `<li style="margin-bottom: 12px;"><strong>${m.nome}</strong> (${m.dose}) - Duração: ${m.diasTotais} dias - Status: ${m.active ? 'Em andamento' : 'Concluído'}${dosesLog}</li>`;
+                    return `<li style="margin-bottom: 12px;"><strong>${esc(m.nome)}</strong> (${esc(m.dose)}) - Duração: ${m.diasTotais} dias - Status: ${m.active ? 'Em andamento' : 'Concluído'}${dosesLog}</li>`;
                 }).join('') || '<li>Nenhum tratamento registrado</li>'}
             </ul>
         `;
