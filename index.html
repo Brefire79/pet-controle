@@ -986,6 +986,8 @@
             msg = `Excluir o tratamento "${item.nome}"?` + (nDoses ? `\n\nIsto apaga também ${nDoses} dose(s) do histórico de administração. Esta ação não pode ser desfeita.` : '');
         }
         if(confirm(msg)) {
+            // Propaga a exclusão pra nuvem (best-effort). Doses filhas caem por cascade (FK).
+            if (item && item.cloudId) deletarNaNuvem(colecao, item.cloudId);
             appData[colecao] = appData[colecao].filter(item => item.id !== id);
             saveData();
             showToast("Item excluído.");
@@ -997,6 +999,27 @@
             if(colecao === 'pesos') renderPesos();
             if(colecao === 'alimentacao') renderAlimentacao();
         }
+    }
+
+    // Gera um id numérico único entre TODAS as coleções (evita colisão do Date.now()
+    // quando dois itens nascem no mesmo milissegundo). Mantém id numérico de propósito:
+    // os ids são interpolados crus em onclick="...(id)", então trocar por string/UUID
+    // exigiria aspas em todos os handlers e quebraria registros antigos numéricos.
+    function novoId() {
+        let id = Date.now();
+        const usados = new Set(
+            ['medicamentos', 'vacinas', 'registros', 'pesos', 'alimentacao']
+                .flatMap(c => (appData[c] || []).map(i => i.id))
+        );
+        while (usados.has(id)) id++;
+        return id;
+    }
+
+    // Propaga uma exclusão para a nuvem (best-effort). Sem rede/login, não faz nada;
+    // a linha some local e o cloudId fica órfão até a próxima exclusão online.
+    async function deletarNaNuvem(tabela, cloudId) {
+        if (!cloudAtivo || !usuarioAtual || !cloudId) return;
+        try { await sb.from(tabela).delete().eq('id', cloudId); } catch (_) { /* best-effort */ }
     }
 
     // Segurança: escapa dados do usuário antes de injetar via innerHTML (anti-XSS).
@@ -1142,7 +1165,8 @@
         const med = appData.medicamentos.find(m => m.id === id);
         if (!med || !med.doses || med.doses.length === 0) return;
         if (!confirm("Remover a última dose registrada?")) return;
-        med.doses.pop();
+        const removida = med.doses.pop();
+        if (removida && removida.cloudId) deletarNaNuvem('doses', removida.cloudId);
         med.dosesTomadas = med.doses.length;
         if (!getDosesInfo(med).completo) med.active = true;
         saveData();
@@ -1183,7 +1207,7 @@
         if(vac) {
             const hojeStr = new Date().toISOString().split('T')[0];
             appData.vacinas.push({
-                id: Date.now(),
+                id: novoId(),
                 nome: vac.nome + " (Reforço)",
                 dataAplicacao: hojeStr,
                 dataReforco: null 
@@ -1639,7 +1663,7 @@
                     }
                 } else {
                     appData.medicamentos.unshift({
-                        id: Date.now(),
+                        id: novoId(),
                         nome, dose,
                         freqHoras: freq,
                         diasTotais: dias,
@@ -1658,7 +1682,7 @@
             }
             else if (tipo === 'vacina') {
                 appData.vacinas.unshift({
-                    id: Date.now(),
+                    id: novoId(),
                     nome: document.getElementById('vac-nome').value,
                     dataAplicacao: document.getElementById('vac-data').value,
                     dataReforco: document.getElementById('vac-reforco').value || null,
@@ -1675,7 +1699,7 @@
                 if (!isNaN(valorNum)) {
                     appData.pesos = appData.pesos || [];
                     appData.pesos.unshift({
-                        id: Date.now(),
+                        id: novoId(),
                         valor: valorNum,
                         data: new Date().toISOString()
                     });
@@ -1684,7 +1708,7 @@
             }
             else if (tipo === 'registro') {
                 appData.registros.unshift({
-                    id: Date.now(),
+                    id: novoId(),
                     tipo: document.getElementById('reg-tipo').value,
                     desc: document.getElementById('reg-desc').value,
                     data: new Date().toISOString()
@@ -1693,7 +1717,7 @@
             }
             else if (tipo === 'alimentacao') {
                 appData.alimentacao.unshift({
-                    id: Date.now(),
+                    id: novoId(),
                     nome: document.getElementById('alim-nome').value,
                     quantidade: document.getElementById('alim-qtd').value,
                     data: new Date().toISOString()
