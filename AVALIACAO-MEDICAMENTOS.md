@@ -41,13 +41,12 @@ Fluxo atual:
 | 7 | Sem editar / nota por dose / pular | ✅ **edição de tratamento** (modo novo/editar) + nota por dose; 🔲 "pular dose" |
 | 8 | PDF não listava doses ministradas | 🟡 PDF lista tratamentos; log de doses por dose ainda resumido |
 
-## 3. Consultas — lacunas
+## 3. Consultas
 
 - Consulta fica em "Registros Clínicos" (`modal-registro`).
-- 🔲 **Sem campo de data** no front — `handleFormSubmit('registro')` usa `new Date()` (hoje).
-  (O schema Supabase já tem `data`, `proximo_retorno`, `veterinario`, `clinica`, `custo`.)
-- 🔲 Sem agendamento de retorno no front.
-- 🔲 Sem vet/clínica/custo no formulário de consulta.
+- ✅ **Campo de data própria** (default hoje, permite registrar consulta passada).
+- ✅ **Retorno** com lembrete colorido (hoje / atrasado / em Xd), igual ao reforço de vacina.
+- ✅ **Vet / clínica / custo** no formulário, na listagem e no PDF.
 - 🔲 Sem anexo (foto de exame/receita).
 
 ## 4. Técnico / infra
@@ -69,9 +68,10 @@ Fluxo atual:
 2. **Escapar HTML** dos dados do usuário ao renderizar (XSS armazenado) — ver revisão de segurança.
 
 ### MÉDIA
-3. Consulta com data própria + retorno + vet/clínica/custo (schema já suporta).
+3. ✅ ~~Consulta com data própria + retorno + vet/clínica/custo~~ (feito).
 4. Incluir o log de doses ministradas detalhado no PDF.
 5. "Pular dose" / marcar dose perdida.
+6. Anexo de exame/receita na consulta; deleção que propaga e sync bidirecional entre devices.
 
 ### BAIXA
 6. Cache real no Service Worker (offline de verdade).
