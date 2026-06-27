@@ -521,7 +521,7 @@
                     <button onclick="openModal('modal-peso')" class="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-600 hover:bg-orange-100 transition" title="Registrar Peso">
                         <i data-lucide="scale"></i>
                     </button>
-                    <button onclick="openModal('modal-registro')" class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition" title="Novo Registro">
+                    <button onclick="abrirModalRegistro()" class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition" title="Novo Registro">
                         <i data-lucide="plus"></i>
                     </button>
                 </div>
@@ -781,19 +781,46 @@
         <h2 class="text-xl font-bold mb-6">Novo Registro Clínico</h2>
         <form onsubmit="handleFormSubmit(event, 'registro')">
              <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Registro</label>
-                    <select id="reg-tipo" class="apple-input bg-white">
-                        <option value="Consulta de Rotina">Consulta de Rotina</option>
-                        <option value="Sintoma/Problema">Sintoma/Problema</option>
-                        <option value="Exame Laboratorial">Exame Laboratorial</option>
-                        <option value="Procedimento Cirúrgico">Procedimento Cirúrgico</option>
-                    </select>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                        <select id="reg-tipo" class="apple-input bg-white">
+                            <option value="Consulta de Rotina">Consulta de Rotina</option>
+                            <option value="Sintoma/Problema">Sintoma/Problema</option>
+                            <option value="Exame Laboratorial">Exame Laboratorial</option>
+                            <option value="Procedimento Cirúrgico">Procedimento Cirúrgico</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                        <input type="date" id="reg-data" required class="apple-input bg-white">
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Descrição / Diagnóstico</label>
                     <textarea id="reg-desc" required class="apple-input" rows="3" placeholder="O que aconteceu?"></textarea>
                 </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Veterinário</label>
+                        <input type="text" id="reg-vet" class="apple-input" placeholder="Opcional">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Clínica</label>
+                        <input type="text" id="reg-clinica" class="apple-input" placeholder="Opcional">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Custo (R$)</label>
+                        <input type="text" inputmode="decimal" id="reg-custo" class="apple-input" placeholder="Opcional">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Retorno</label>
+                        <input type="date" id="reg-retorno" class="apple-input bg-white" placeholder="Opcional">
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 -mt-1">O retorno vira um lembrete, como o reforço de vacina.</p>
                 <button type="submit" class="apple-btn-primary mt-4">Salvar Registro</button>
              </div>
         </form>
@@ -1173,6 +1200,14 @@
         renderDashboardReminders();
         renderMedicamentos();
         showToast("Última dose removida.");
+    };
+
+    // Abre o registro clínico já com a data de hoje (permite registrar consulta passada).
+    window.abrirModalRegistro = function() {
+        const form = document.querySelector('#modal-registro form');
+        if (form) form.reset();
+        document.getElementById('reg-data').value = new Date().toISOString().split('T')[0];
+        openModal('modal-registro');
     };
 
     // Coloca o modal de medicamento em modo "novo" (cartela nova).
@@ -1568,20 +1603,38 @@
             if(reg.tipo.includes('Exame')) { icon = 'microscope'; color = 'purple'; }
             if(reg.tipo.includes('Cirúrgico')) { icon = 'scissors'; color = 'red'; }
 
+            // Metadados opcionais (vet / clínica / custo)
+            const metas = [];
+            if (reg.veterinario) metas.push(`<span class="flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> ${esc(reg.veterinario)}</span>`);
+            if (reg.clinica) metas.push(`<span class="flex items-center gap-1"><i data-lucide="building-2" class="w-3 h-3"></i> ${esc(reg.clinica)}</span>`);
+            if (reg.custo !== null && reg.custo !== undefined && reg.custo !== '') metas.push(`<span class="flex items-center gap-1 font-mono"><i data-lucide="wallet" class="w-3 h-3"></i> ${Number(reg.custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>`);
+            const metasHtml = metas.length ? `<div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 mt-2">${metas.join('')}</div>` : '';
+
+            // Lembrete de retorno (mesma lógica de cores do reforço de vacina)
+            let retornoHtml = '';
+            if (reg.proximoRetorno) {
+                const dd = calculateDiffDays(reg.proximoRetorno);
+                const chip = dd < 0 ? 'dose-chip-danger' : dd <= 7 ? 'dose-chip-amber' : 'dose-chip-mute';
+                const txt = dd < 0 ? `Retorno atrasado há ${Math.abs(dd)}d` : dd === 0 ? 'Retorno hoje' : `Retorno em ${dd}d`;
+                retornoHtml = `<div class="mt-2"><span class="dose-chip ${chip}"><i data-lucide="calendar-clock" class="w-3 h-3"></i> ${txt} · ${formatDateBR(reg.proximoRetorno)}</span></div>`;
+            }
+
             html += `
             <div class="apple-card p-4 group">
                 <div class="flex items-start gap-4">
                     <div class="w-10 h-10 rounded-full bg-${color}-50 text-${color}-500 flex items-center justify-center shrink-0">
                         <i data-lucide="${icon}"></i>
                     </div>
-                    <div class="flex-1">
-                        <div class="flex justify-between items-start">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start gap-2">
                             <h4 class="font-bold text-gray-900">${esc(reg.tipo)}</h4>
-                            <span class="text-xs text-gray-400">${formatDateBR(reg.data)}</span>
+                            <span class="text-xs text-gray-400 shrink-0">${formatDateBR(reg.data)}</span>
                         </div>
                         <p class="text-sm text-gray-600 mt-1">${esc(reg.desc)}</p>
+                        ${metasHtml}
+                        ${retornoHtml}
                     </div>
-                    <button onclick="apagarItem('registros', ${reg.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    <button onclick="apagarItem('registros', ${reg.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
             </div>`;
         });
@@ -1707,11 +1760,18 @@
                 }
             }
             else if (tipo === 'registro') {
+                const dataReg = document.getElementById('reg-data').value;
+                const custoRaw = document.getElementById('reg-custo').value.trim().replace(',', '.');
+                const custoNum = custoRaw ? parseFloat(custoRaw) : null;
                 appData.registros.unshift({
                     id: novoId(),
                     tipo: document.getElementById('reg-tipo').value,
                     desc: document.getElementById('reg-desc').value,
-                    data: new Date().toISOString()
+                    data: dataReg ? new Date(dataReg + 'T12:00:00').toISOString() : new Date().toISOString(),
+                    proximoRetorno: document.getElementById('reg-retorno').value || null,
+                    veterinario: document.getElementById('reg-vet').value.trim() || '',
+                    clinica: document.getElementById('reg-clinica').value.trim() || '',
+                    custo: (custoNum !== null && !isNaN(custoNum)) ? custoNum : null
                 });
                 renderRegistros();
             }
@@ -1785,7 +1845,10 @@
             })),
             registros: arr(raw.registros).map(r => ({
                 id: idOf(r.id), cloudId: cid(r),
-                tipo: str(r.tipo, 60), desc: str(r.desc, 2000), data: str(r.data, 40) || new Date().toISOString()
+                tipo: str(r.tipo, 60), desc: str(r.desc, 2000), data: str(r.data, 40) || new Date().toISOString(),
+                proximoRetorno: r.proximoRetorno ? str(r.proximoRetorno, 30) : null,
+                veterinario: str(r.veterinario, 120), clinica: str(r.clinica, 120),
+                custo: (r.custo === null || r.custo === undefined || r.custo === '') ? null : numOr(r.custo, null)
             })),
             pesos: arr(raw.pesos).map(p => ({ id: idOf(p.id), cloudId: cid(p), valor: numOr(p.valor, 0), data: str(p.data, 40) || new Date().toISOString() })),
             alimentacao: arr(raw.alimentacao).map(a => ({ id: idOf(a.id), cloudId: cid(a), nome: str(a.nome, 120), quantidade: str(a.quantidade, 60), data: str(a.data, 40) || new Date().toISOString() }))
@@ -1856,7 +1919,15 @@
 
             <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Ocorrências Clínicas e Exames</h3>
             <ul style="padding-left: 20px;">
-                ${appData.registros.map(r => `<li style="margin-bottom: 10px;"><strong>${formatDateBR(r.data)} - ${esc(r.tipo)}:</strong><br> ${esc(r.desc)}</li>`).join('') || '<li>Nenhum registro clínico</li>'}
+                ${appData.registros.map(r => {
+                    const extra = [];
+                    if (r.veterinario) extra.push('Vet: ' + esc(r.veterinario));
+                    if (r.clinica) extra.push('Clínica: ' + esc(r.clinica));
+                    if (r.custo !== null && r.custo !== undefined && r.custo !== '') extra.push('Custo: ' + Number(r.custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+                    if (r.proximoRetorno) extra.push('Retorno: ' + formatDateBR(r.proximoRetorno));
+                    const extraHtml = extra.length ? `<br><span style="font-size:12px;color:#666;">${extra.join(' · ')}</span>` : '';
+                    return `<li style="margin-bottom: 10px;"><strong>${formatDateBR(r.data)} - ${esc(r.tipo)}:</strong><br> ${esc(r.desc)}${extraHtml}</li>`;
+                }).join('') || '<li>Nenhum registro clínico</li>'}
             </ul>
 
             <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Histórico de Tratamentos</h3>
@@ -2052,7 +2123,13 @@
                 await upsertItem('vacinas', v, { pet_id: pet.id, nome: v.nome, data_aplicacao: v.dataAplicacao, data_reforco: v.dataReforco || null, veterinario: v.veterinario || null });
             }
             for (const r of (appData.registros || [])) {
-                await upsertItem('registros', r, { pet_id: pet.id, tipo: r.tipo, descricao: r.desc, data: (r.data || new Date().toISOString()).split('T')[0] });
+                await upsertItem('registros', r, {
+                    pet_id: pet.id, tipo: r.tipo, descricao: r.desc,
+                    data: (r.data || new Date().toISOString()).split('T')[0],
+                    proximo_retorno: r.proximoRetorno || null,
+                    veterinario: r.veterinario || null, clinica: r.clinica || null,
+                    custo: (r.custo === null || r.custo === undefined || r.custo === '') ? null : r.custo
+                });
             }
             for (const x of (appData.pesos || [])) {
                 await upsertItem('pesos', x, { pet_id: pet.id, valor: x.valor, data: x.data });
