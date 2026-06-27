@@ -1,0 +1,16 @@
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs e temporários
+*.log
+*.tmp
+
+# Ferramentas locais / editor
+.claude/
+.vscode/
+
+# Dependências (caso entrem no futuro via Capacitor/Netlify)
+node_modules/
+dist/

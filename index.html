@@ -1,0 +1,2087 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>PetCare - Saúde do seu Pet</title>
+    
+    <!-- PWA Meta Tags & Ícones Mobile -->
+    <meta name="theme-color" content="#F5F5F7">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="PetCare">
+    <link rel="apple-touch-icon" href="./icon.png">
+    <link rel="manifest" id="manifest-link">
+    
+    <!-- Tailwind CSS para estilização rápida -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Identidade "Cartela": recolore o app inteiro de forma coesa,
+        // remapeando as escalas do Tailwind para a paleta nova sem reescrever cada classe.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        display: ['"Bricolage Grotesque"', 'Inter', 'sans-serif'],
+                        mono: ['"Space Mono"', 'ui-monospace', 'monospace'],
+                    },
+                    colors: {
+                        // azul -> coral (ação / primário)
+                        blue:   { 50:'#FFF1ED',100:'#FFE0D6',200:'#FFC3B0',300:'#FF9E80',400:'#FF8159',500:'#FF6B4A',600:'#F2502E',700:'#D33E1F',800:'#A82F16',900:'#7E2412' },
+                        // verde -> vital (no prazo / concluído)
+                        green:  { 50:'#E6F7F2',100:'#C5EFE3',200:'#97E2CC',300:'#5FD0AF',400:'#33BE97',500:'#1FA98F',600:'#178B76',700:'#0F6B5A',800:'#0B5345',900:'#073A30' },
+                        // laranja -> âmbar (vence logo)
+                        orange: { 50:'#FFF6E6',100:'#FDE9C2',200:'#FBD68A',300:'#F8C155',400:'#F6B23A',500:'#F5A623',600:'#E08C00',700:'#B86F00',800:'#8F5600',900:'#6B4000' },
+                        // vermelho -> danger (atrasada)
+                        red:    { 50:'#FDECEC',100:'#FAD3D4',200:'#F4ABAD',300:'#EE8285',400:'#EA6469',500:'#E5484D',600:'#D13438',700:'#AE282C',800:'#8B2023',900:'#6B181B' },
+                    },
+                },
+            },
+        };
+    </script>
+
+    <!-- Lucide Icons para ícones minimalistas -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- html2pdf para geração de relatórios -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- Supabase (Auth email/senha + Postgres + RLS) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Google Fonts: Bricolage Grotesque (display) · Inter (corpo) · Space Mono (dados/horários) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* Paleta "Cartela" — ficha clínica de doses, calor pet */
+            --bg-color: #ECF1EE;       /* sage clínico */
+            --surface-color: #FFFFFF;
+            --text-primary: #1A1714;   /* tinta espresso */
+            --text-secondary: #7C857F; /* sage acinzentado */
+            --accent-blue: #FF6B4A;    /* coral — ação/primário (nome mantido p/ compat) */
+            --accent-green: #1FA98F;   /* vital teal — no prazo */
+            --accent-red: #E5484D;     /* danger — atrasada */
+            --accent-orange: #F5A623;  /* âmbar — vence logo */
+            --ink: #1A1714;
+            --coral: #FF6B4A;
+            --coral-press: #F2502E;
+            --vital: #1FA98F;
+            --amber: #F5A623;
+            --danger: #E5484D;
+            --border-color: rgba(26, 23, 20, 0.07);
+            --shadow-subtle: 0 6px 28px rgba(26, 23, 20, 0.06);
+            --radius-lg: 22px;
+            --radius-md: 14px;
+            --radius-sm: 10px;
+        }
+
+        /* Estilos globais e tipografia */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            margin: 0;
+            padding: 0;
+            padding-top: env(safe-area-inset-top);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+            padding-bottom: 100px; /* Espaço para a navbar inferior */
+            transition: background-color 0.3s ease;
+
+            /* UX Mobile: Evitar seleção de texto acidental e highlight de toque em botões */
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        input, textarea, select {
+            user-select: auto;
+            -webkit-user-select: auto;
+        }
+
+        /* Classes utilitárias personalizadas (Aesthetics) */
+        .apple-card {
+            background-color: var(--surface-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-subtle);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .apple-card:active {
+            transform: scale(0.98);
+        }
+
+        .apple-btn-primary {
+            background-color: var(--accent-blue);
+            color: white;
+            border-radius: 999px; /* Pílula */
+            padding: 14px 24px;
+            font-weight: 600;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        .apple-btn-primary:active {
+            background-color: var(--coral-press);
+            transform: scale(0.96);
+        }
+
+        .apple-btn-ghost {
+            background-color: transparent;
+            color: var(--text-primary);
+            border-radius: 999px;
+            padding: 13px 24px;
+            font-weight: 600;
+            font-size: 15px;
+            border: 1.5px solid var(--border-color);
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+        .apple-btn-ghost:active { transform: scale(0.96); background-color: rgba(26,23,20,0.04); }
+
+        .apple-input {
+            background-color: #F5F5F7;
+            border: 1px solid transparent;
+            border-radius: var(--radius-md);
+            padding: 16px;
+            font-size: 16px;
+            width: 100%;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .apple-input:focus {
+            background-color: #FFFFFF;
+            border-color: var(--coral);
+            box-shadow: 0 0 0 4px rgba(255, 107, 74, 0.14);
+        }
+
+        /* Barra de navegação inferior estilo iOS */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+            z-index: 50;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 10px;
+            font-weight: 500;
+            transition: color 0.2s ease;
+            cursor: pointer;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+        }
+
+        .nav-item.active {
+            color: var(--accent-blue);
+        }
+
+        .nav-item svg {
+            margin-bottom: 4px;
+            width: 24px;
+            height: 24px;
+        }
+
+        /* Títulos */
+        .apple-title {
+            font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+            font-weight: 700;
+            font-size: 30px;
+            letter-spacing: -0.8px;
+            margin-bottom: 8px;
+        }
+        h1, h2, h3, h4 { font-family: 'Bricolage Grotesque', 'Inter', sans-serif; letter-spacing: -0.4px; }
+        .font-mono, .mono { font-family: 'Space Mono', ui-monospace, monospace; }
+        
+        .apple-subtitle {
+            font-size: 15px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Modal Overlay (Glassmorphism) */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            display: flex;
+            justify-content: center;
+            align-items: flex-end; /* Abre de baixo para cima no mobile */
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background-color: var(--surface-color);
+            width: 100%;
+            max-width: 500px;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            padding: 32px 24px calc(24px + env(safe-area-inset-bottom));
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        @media (min-width: 640px) {
+            .modal-content {
+                border-radius: var(--radius-lg);
+                transform: translateY(20px) scale(0.95);
+                margin-bottom: auto;
+                margin-top: auto;
+            }
+            .modal-overlay {
+                align-items: center;
+            }
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0) scale(1);
+        }
+
+        .modal-handle {
+            width: 36px;
+            height: 5px;
+            background-color: #E5E5EA;
+            border-radius: 99px;
+            margin: -16px auto 24px;
+        }
+
+        /* Transições de view (SPA) */
+        .view {
+            display: none;
+            animation: fadeIn 0.3s ease forwards;
+        }
+        .view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Ícones de status */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-ok { background-color: var(--accent-green); }
+        .status-warn { background-color: var(--accent-orange); }
+        .status-danger { background-color: var(--accent-red); }
+
+        /* Custom Notification Toast */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            padding: 16px 24px;
+            border-radius: 99px;
+            box-shadow: var(--shadow-subtle);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 1000;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            font-weight: 500;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ============================================================
+           ASSINATURA: fita de pips de dose (cartela de comprimidos)
+           ============================================================ */
+        .pip-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .pip {
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            box-sizing: border-box;
+            flex: 0 0 auto;
+            transition: transform 0.15s ease;
+        }
+        .pip-taken    { background: var(--vital); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.55); }
+        .pip-pending  { background: transparent; border: 2px dashed rgba(26,23,20,0.18); }
+        .pip-due      { background: var(--coral); animation: pip-pulse 1.6s ease-in-out infinite; }
+        .pip-overdue  { background: var(--danger); animation: pip-pulse 1s ease-in-out infinite; }
+        .pip-more     { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text-secondary); margin-left: 2px; }
+        @keyframes pip-pulse {
+            0%,100% { transform: scale(1);   box-shadow: 0 0 0 0 rgba(255,107,74,0.45); }
+            50%     { transform: scale(1.15);box-shadow: 0 0 0 5px rgba(255,107,74,0); }
+        }
+
+        /* Eyebrow (rótulo de ficha) */
+        .eyebrow {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+
+        /* Chip de status de dose */
+        .dose-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .dose-chip-vital   { background: var(--vital);  color: #fff; }
+        .dose-chip-coral   { background: var(--coral);  color: #fff; }
+        .dose-chip-amber   { background: var(--amber);  color: #4a3400; }
+        .dose-chip-danger  { background: var(--danger); color: #fff; }
+        .dose-chip-mute    { background: rgba(26,23,20,0.06); color: var(--text-secondary); }
+
+        /* Hero da próxima dose (tese do app) */
+        .dose-hero {
+            background: linear-gradient(135deg, #1A1714 0%, #2A2620 100%);
+            color: #fff;
+            border-radius: var(--radius-lg);
+            padding: 22px;
+            box-shadow: var(--shadow-subtle);
+        }
+        .dose-hero .hero-count {
+            font-family: 'Space Mono', monospace;
+            font-size: 40px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -1px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .pip-due, .pip-overdue { animation: none; }
+            *, *::before, *::after { transition-duration: 0.01ms !important; }
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="max-w-2xl mx-auto px-4 pt-12">
+    <!-- Header Fixo -->
+    <header class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="apple-title" id="header-title">Bom dia!</h1>
+            <p class="apple-subtitle" id="currentDate">Quarta, 20 de Maio</p>
+            <p class="text-xs font-medium text-blue-600 mt-1" id="header-age"></p>
+        </div>
+        <div class="w-14 h-14 bg-gray-200 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer transition transform active:scale-95" onclick="openModal('modal-perfil')">
+            <img id="header-avatar" src="https://placehold.co/200x200/0071E3/FFFFFF?text=Pet" alt="Perfil do Pet" class="w-full h-full object-cover">
+        </div>
+    </header>
+
+    <!-- VIEWS CONTAINER -->
+    <main id="app-content">
+
+        <!-- VIEW: DASHBOARD -->
+        <section id="view-dashboard" class="view active">
+            
+            <!-- Resumo Saúde -->
+            <div class="apple-card mb-6 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                        <i data-lucide="activity"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-lg">Saúde Geral</h3>
+                        <p class="text-sm text-gray-500 flex items-center gap-1">
+                            <span class="status-dot status-ok"></span> Tudo em ordem
+                        </p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span id="dashboard-peso" class="text-2xl font-bold">--</span>
+                    <span class="text-sm text-gray-500">kg</span>
+                </div>
+            </div>
+
+            <!-- Alertas Ativos -->
+            <h2 class="text-xl font-bold mb-4 mt-8">Tratamentos em Andamento</h2>
+            <div id="dashboard-reminders" class="space-y-4">
+                <!-- Populado por JS -->
+            </div>
+
+            <!-- Acesso Rápido -->
+            <h2 class="text-xl font-bold mb-4 mt-8">Acesso Rápido</h2>
+            <div class="grid grid-cols-3 gap-4 mb-8">
+                <div class="apple-card bg-orange-50 border-none cursor-pointer flex flex-col items-center p-4" onclick="switchView('medicamentos'); abrirModalNovoMed()">
+                    <div class="text-orange-500 mb-2"><i data-lucide="pill" class="w-6 h-6"></i></div>
+                    <div class="font-semibold text-sm text-center">Remédio</div>
+                </div>
+                <div class="apple-card bg-blue-50 border-none cursor-pointer flex flex-col items-center p-4" onclick="switchView('vacinas'); openModal('modal-vacina')">
+                    <div class="text-blue-500 mb-2"><i data-lucide="syringe" class="w-6 h-6"></i></div>
+                    <div class="font-semibold text-sm text-center">Vacina</div>
+                </div>
+                <div class="apple-card bg-green-50 border-none cursor-pointer flex flex-col items-center p-4" onclick="switchView('saude'); openModal('modal-alimentacao')">
+                    <div class="text-green-500 mb-2"><i data-lucide="bone" class="w-6 h-6"></i></div>
+                    <div class="font-semibold text-sm text-center">Ração</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW: VACINAS -->
+        <section id="view-vacinas" class="view">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Carteira de Vacinação</h2>
+                <button onclick="openModal('modal-vacina')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-blue-600 hover:bg-gray-200 transition shadow-sm">
+                    <i data-lucide="plus"></i>
+                </button>
+            </div>
+
+            <div id="vacinas-proximas">
+                <!-- Populado por JS (Alertas e Contadores) -->
+            </div>
+
+            <h3 class="font-semibold text-gray-500 uppercase text-xs tracking-wider mb-3 mt-6">Histórico de Aplicações</h3>
+            <div class="space-y-3" id="vacinas-list">
+                <!-- Populado por JS -->
+            </div>
+        </section>
+
+        <!-- VIEW: MEDICAMENTOS -->
+        <section id="view-medicamentos" class="view">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Tratamentos</h2>
+                <button onclick="abrirModalNovoMed()" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-blue-600 hover:bg-gray-200 transition shadow-sm">
+                    <i data-lucide="plus"></i>
+                </button>
+            </div>
+
+            <!-- Tratamentos Ativos -->
+            <div class="space-y-4" id="medicamentos-list">
+                <!-- Populado por JS -->
+            </div>
+        </section>
+
+        <!-- VIEW: SAÚDE & EXAMES -->
+        <section id="view-saude" class="view">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Registros Clínicos</h2>
+                <div class="flex gap-2">
+                    <button onclick="openModal('modal-peso')" class="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-600 hover:bg-orange-100 transition" title="Registrar Peso">
+                        <i data-lucide="scale"></i>
+                    </button>
+                    <button onclick="openModal('modal-registro')" class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition" title="Novo Registro">
+                        <i data-lucide="plus"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Gráfico de Peso Dinâmico -->
+            <div class="apple-card mb-6">
+                <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="trending-up" class="w-5 h-5 text-gray-400"></i> Evolução de Peso</h3>
+                <div class="w-full h-48 mb-6">
+                    <canvas id="pesoChart"></canvas>
+                </div>
+                <div id="pesos-list" class="space-y-3">
+                    <!-- Populado por JS -->
+                </div>
+            </div>
+
+            <!-- Alimentação e Dieta -->
+            <div class="flex justify-between items-center mb-4 mt-8">
+                <h3 class="font-semibold text-gray-500 uppercase text-xs tracking-wider">Dieta & Ração</h3>
+                <button onclick="openModal('modal-alimentacao')" class="text-blue-600 text-sm font-medium hover:underline flex items-center gap-1">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Atualizar Dieta
+                </button>
+            </div>
+            <div id="alimentacao-list" class="space-y-3 mb-6">
+                <!-- Populado por JS -->
+            </div>
+
+            <!-- Lista de Ocorrências -->
+            <h3 class="font-semibold text-gray-500 uppercase text-xs tracking-wider mb-3 mt-8">Ocorrências e Exames</h3>
+            <div class="space-y-4" id="registros-list">
+                <!-- Populado por JS -->
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- BARRA DE NAVEGAÇÃO INFERIOR -->
+<nav class="bottom-nav">
+    <a class="nav-item active" data-target="dashboard" onclick="switchView('dashboard')">
+        <i data-lucide="layout-dashboard"></i>
+        Início
+    </a>
+    <a class="nav-item" data-target="vacinas" onclick="switchView('vacinas')">
+        <i data-lucide="syringe"></i>
+        Vacinas
+    </a>
+    <a class="nav-item" data-target="medicamentos" onclick="switchView('medicamentos')">
+        <i data-lucide="pill"></i>
+        Remédios
+    </a>
+    <a class="nav-item" data-target="saude" onclick="switchView('saude')">
+        <i data-lucide="heart-pulse"></i>
+        Saúde
+    </a>
+</nav>
+
+<!-- MODAIS DE INSERÇÃO DE DADOS -->
+
+<!-- Modal: Perfil do Pet & Configurações -->
+<div class="modal-overlay" id="modal-perfil" onclick="closeModal(event, 'modal-perfil')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-6">Perfil e Configurações</h2>
+        
+        <form id="form-perfil" onsubmit="handleFormSubmit(event, 'perfil')">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nome do Pet</label>
+                    <input type="text" id="perfil-nome" required class="apple-input" placeholder="Ex: Rex">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Espécie / Raça</label>
+                    <input type="text" id="perfil-raca" required class="apple-input" placeholder="Ex: Cachorro - Golden Retriever">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento (Aproximada)</label>
+                    <input type="date" id="perfil-nasc" required class="apple-input">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data da Castração (Opcional)</label>
+                    <input type="date" id="perfil-castracao" class="apple-input">
+                </div>
+                <div class="pt-2">
+                    <button type="submit" class="apple-btn-primary">Salvar Perfil</button>
+                </div>
+            </div>
+        </form>
+
+        <hr class="my-6 border-gray-100">
+        <h3 class="text-sm font-bold text-gray-700 mb-3">Backup e Exportação</h3>
+        <div class="grid grid-cols-1 gap-2">
+            <button type="button" onclick="exportPDF()" class="w-full bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-red-100 transition flex justify-center items-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4"></i> Exportar Prontuário (PDF)
+            </button>
+            <button type="button" onclick="exportJSON()" class="w-full bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-100 transition flex justify-center items-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i> Fazer Backup de Dados (JSON)
+            </button>
+            <label class="w-full bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm hover:bg-gray-100 transition cursor-pointer flex justify-center items-center gap-2">
+                <i data-lucide="upload" class="w-4 h-4"></i> Restaurar Dados (JSON)
+                <input type="file" accept=".json" class="hidden" onchange="importJSON(event)">
+            </label>
+        </div>
+
+        <!-- Conta (aparece só no modo nuvem, logado) -->
+        <div id="conta-box" class="mt-6 pt-6 border-t border-gray-100" style="display:none;">
+            <h3 class="text-sm font-bold text-gray-700 mb-3">Conta</h3>
+            <div class="flex items-center gap-2 bg-gray-50 rounded-xl p-3 mb-2 min-w-0">
+                <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><i data-lucide="user" class="w-4 h-4"></i></div>
+                <span id="conta-email" class="text-sm text-gray-700 truncate"></span>
+            </div>
+            <button type="button" onclick="enviarParaNuvem()" class="w-full bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-100 transition flex justify-center items-center gap-2 mb-2">
+                <i data-lucide="cloud-upload" class="w-4 h-4"></i> Enviar dados deste aparelho para a nuvem
+            </button>
+            <button type="button" onclick="logout()" class="w-full bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-red-100 transition flex justify-center items-center gap-2">
+                <i data-lucide="log-out" class="w-4 h-4"></i> Sair
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Adicionar Medicamento -->
+<div class="modal-overlay" id="modal-medicamento" onclick="closeModal(event, 'modal-medicamento')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <p class="eyebrow mb-1" id="med-modal-eyebrow">Cartela nova</p>
+        <h2 class="text-2xl font-bold mb-6" id="med-modal-titulo">Novo Tratamento</h2>
+
+        <form id="form-medicamento" onsubmit="handleFormSubmit(event, 'medicamento')">
+            <input type="hidden" id="med-edit-id" value="">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nome do Medicamento</label>
+                    <input type="text" id="med-nome" required class="apple-input" placeholder="Ex: Nexgard, Antibiótico...">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Dosagem</label>
+                        <input type="text" id="med-dose" required class="apple-input" placeholder="Ex: 1 comp, 10ml">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Frequência</label>
+                        <select id="med-freq" class="apple-input bg-white">
+                            <option value="8">A cada 8h</option>
+                            <option value="12">A cada 12h</option>
+                            <option value="24">1x ao dia</option>
+                            <option value="720">Mensal (30 dias)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Duração do Tratamento (Dias)</label>
+                    <input type="number" id="med-dias" required min="1" class="apple-input" placeholder="Ex: 7 para uma semana">
+                    <p class="text-xs text-gray-500 mt-1">O app controlará a quantidade total de doses necessárias.</p>
+                </div>
+
+                <div class="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-gray-100 mt-2">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                            <i data-lucide="bell"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium">Criar Alerta</p>
+                            <p class="text-xs text-gray-500">Notificar na hora</p>
+                        </div>
+                    </div>
+                    <!-- Toggle Switch Apple Style -->
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="med-alert" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
+                <div class="pt-4">
+                    <button type="submit" class="apple-btn-primary" id="med-submit-btn">Iniciar Tratamento</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Registrar Dose Ministrada -->
+<div class="modal-overlay" id="modal-dose" onclick="closeModal(event, 'modal-dose')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-1">Registrar Dose</h2>
+        <p class="text-sm text-gray-500 mb-6" id="dose-med-nome">—</p>
+        <form onsubmit="confirmarDose(event)">
+            <input type="hidden" id="dose-med-id">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data e hora da administração</label>
+                    <input type="datetime-local" id="dose-datahora" required class="apple-input bg-white">
+                    <p class="text-xs text-gray-500 mt-1">Já vem com o horário de agora. Ajuste se deu o remédio em outra hora.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Observação (opcional)</label>
+                    <input type="text" id="dose-nota" class="apple-input" placeholder="Ex: com comida, vomitou, recusou...">
+                </div>
+                <button type="submit" class="apple-btn-primary mt-2">Registrar Dose</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Registrar Peso -->
+<div class="modal-overlay" id="modal-peso" onclick="closeModal(event, 'modal-peso')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-6">Registrar Peso</h2>
+        <form onsubmit="handleFormSubmit(event, 'peso')">
+            <div class="flex items-center gap-4 mb-8">
+                <input type="number" id="peso-valor" step="0.01" required class="apple-input text-4xl text-center font-bold !py-8" placeholder="0.0">
+                <span class="text-2xl font-medium text-gray-400">kg</span>
+            </div>
+            <button type="submit" class="apple-btn-primary">Registrar</button>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Adicionar Vacina -->
+<div class="modal-overlay" id="modal-vacina" onclick="closeModal(event, 'modal-vacina')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-6">Nova Vacina</h2>
+        <form onsubmit="handleFormSubmit(event, 'vacina')">
+             <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Vacina</label>
+                    <input type="text" id="vac-nome" required class="apple-input" placeholder="Ex: V10, Raiva, Gripe...">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data da Aplicação</label>
+                    <input type="date" id="vac-data" required class="apple-input">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data do Próximo Reforço (Opcional)</label>
+                    <input type="date" id="vac-reforco" class="apple-input">
+                    <p class="text-xs text-gray-500 mt-1">Se preenchido, o app criará um contador para o aviso.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Veterinário(a) Responsável (Opcional)</label>
+                    <input type="text" id="vac-vet" class="apple-input" placeholder="Ex: Dra. Mariana">
+                </div>
+                <button type="submit" class="apple-btn-primary mt-4">Salvar Vacina</button>
+             </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Registro Clínico -->
+<div class="modal-overlay" id="modal-registro" onclick="closeModal(event, 'modal-registro')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-6">Novo Registro Clínico</h2>
+        <form onsubmit="handleFormSubmit(event, 'registro')">
+             <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Registro</label>
+                    <select id="reg-tipo" class="apple-input bg-white">
+                        <option value="Consulta de Rotina">Consulta de Rotina</option>
+                        <option value="Sintoma/Problema">Sintoma/Problema</option>
+                        <option value="Exame Laboratorial">Exame Laboratorial</option>
+                        <option value="Procedimento Cirúrgico">Procedimento Cirúrgico</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Descrição / Diagnóstico</label>
+                    <textarea id="reg-desc" required class="apple-input" rows="3" placeholder="O que aconteceu?"></textarea>
+                </div>
+                <button type="submit" class="apple-btn-primary mt-4">Salvar Registro</button>
+             </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Adicionar Alimentação -->
+<div class="modal-overlay" id="modal-alimentacao" onclick="closeModal(event, 'modal-alimentacao')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h2 class="text-xl font-bold mb-6">Atualizar Dieta</h2>
+        <form onsubmit="handleFormSubmit(event, 'alimentacao')">
+             <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nome/Marca da Ração</label>
+                    <input type="text" id="alim-nome" required class="apple-input" placeholder="Ex: Royal Canin Mini Adulto">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Quantidade Diária (Gramas ou Medidas)</label>
+                    <input type="text" id="alim-qtd" required class="apple-input" placeholder="Ex: 150g ou 2 xícaras por dia">
+                </div>
+                <button type="submit" class="apple-btn-primary mt-4">Salvar Dieta</button>
+             </div>
+        </form>
+    </div>
+</div>
+
+<!-- TELA DE LOGIN (aparece só quando o Supabase está configurado) -->
+<div id="auth-overlay" class="fixed inset-0 z-[200] bg-[var(--bg-color)] flex items-center justify-center px-6" style="display:none;">
+    <div class="w-full max-w-sm">
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 rounded-3xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <i data-lucide="paw-print" class="w-8 h-8"></i>
+            </div>
+            <h1 class="text-2xl font-bold">Vianexx PetCare</h1>
+            <p class="apple-subtitle" id="auth-subtitle">Entre para sincronizar a saúde do seu pet</p>
+        </div>
+        <form id="auth-form" onsubmit="handleAuth(event)">
+            <div class="space-y-3">
+                <input type="email" id="auth-email" required class="apple-input" placeholder="seu@email.com" autocomplete="email">
+                <input type="password" id="auth-senha" required minlength="6" class="apple-input" placeholder="Senha (mín. 6 caracteres)" autocomplete="current-password">
+                <p id="auth-erro" class="text-sm text-red-500 hidden"></p>
+                <button type="submit" id="auth-submit" class="apple-btn-primary">Entrar</button>
+            </div>
+        </form>
+        <div class="text-center mt-5">
+            <button onclick="toggleAuthMode()" class="text-sm text-blue-600 font-medium" id="auth-toggle">Não tem conta? Cadastre-se</button>
+        </div>
+        <div class="text-center mt-3">
+            <button onclick="usarSemConta()" class="text-sm text-gray-400">Usar sem conta (só neste aparelho)</button>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Toast Notification -->
+<div id="toast" class="toast">
+    <div class="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
+        <i data-lucide="check" class="w-4 h-4"></i>
+    </div>
+    <span id="toast-message">Ação realizada com sucesso</span>
+</div>
+
+<!-- Toast de Atualização PWA -->
+<div id="update-toast" class="fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-4 z-[1000] transition-transform duration-500 translate-y-48">
+    <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+            <i data-lucide="download" class="w-4 h-4 text-white"></i>
+        </div>
+        <span class="text-sm font-medium whitespace-nowrap">Nova versão disponível!</span>
+    </div>
+    <button onclick="window.location.reload()" class="bg-white text-gray-900 px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-100 active:scale-95 transition-transform">
+        Atualizar
+    </button>
+</div>
+
+<script>
+    lucide.createIcons();
+
+    const dateElement = document.getElementById('currentDate');
+    const options = { weekday: 'long', day: 'numeric', month: 'long' };
+    const todayStrHeader = new Date().toLocaleDateString('pt-BR', options);
+    dateElement.textContent = todayStrHeader.charAt(0).toUpperCase() + todayStrHeader.slice(1);
+
+    // Variável para gerenciar a instância do Gráfico
+    let chartInstance = null;
+
+    // --- APP STATE (Persistência via LocalStorage) ---
+    let appData = {
+        perfil: { nome: "Meu Pet", raca: "Espécie", nascimento: "2020-01-01", castracao: "" },
+        medicamentos: [],
+        vacinas: [],
+        registros: [],
+        pesos: [],
+        alimentacao: []
+    };
+
+    function initData() {
+        const stored = localStorage.getItem('petcare_data_v3'); 
+        if (stored) {
+            appData = JSON.parse(stored);
+            
+            // Garantir que todas as propriedades existam
+            appData.perfil = appData.perfil || { nome: "", raca: "", nascimento: "", castracao: "" };
+            appData.medicamentos = appData.medicamentos || [];
+            appData.vacinas = appData.vacinas || [];
+            appData.registros = appData.registros || [];
+            appData.pesos = appData.pesos || [];
+            appData.alimentacao = appData.alimentacao || [];
+            
+            if(!appData.perfil.castracao) appData.perfil.castracao = "";
+        } else {
+            const oldStored = localStorage.getItem('petcare_data_v2');
+            if(oldStored) {
+                const oldData = JSON.parse(oldStored);
+                appData.medicamentos = oldData.medicamentos || [];
+                appData.vacinas = oldData.vacinas || [];
+                appData.registros = oldData.registros || [];
+                appData.alimentacao = [];
+            }
+            saveData();
+        }
+        migrateData();
+        renderPerfil();
+    }
+
+    // Migração: transforma o contador "dosesTomadas" em um log de doses ministradas.
+    // Mantém compatibilidade com dados antigos (cria timestamps estimados a partir do início e da frequência).
+    function migrateData() {
+        (appData.medicamentos || []).forEach(m => {
+            if (!Array.isArray(m.doses)) {
+                m.doses = [];
+                const tomadas = m.dosesTomadas || 0;
+                const base = m.dataInicio ? new Date(m.dataInicio) : new Date();
+                const passo = (m.freqHoras || 24) * 3600000;
+                for (let i = 0; i < tomadas; i++) {
+                    m.doses.push({ ts: new Date(base.getTime() + i * passo).toISOString(), nota: 'Importado', imported: true });
+                }
+            }
+            m.dosesTomadas = m.doses.length; // passa a ser derivado de doses
+        });
+        saveData();
+    }
+
+    function saveData() {
+        localStorage.setItem('petcare_data_v3', JSON.stringify(appData));
+    }
+
+    function calcularIdade(dataNasc) {
+        if(!dataNasc) return "";
+        const nasc = new Date(dataNasc);
+        const hoje = new Date();
+        let anos = hoje.getFullYear() - nasc.getFullYear();
+        let meses = hoje.getMonth() - nasc.getMonth();
+        
+        if (meses < 0 || (meses === 0 && hoje.getDate() < nasc.getDate())) {
+            anos--;
+            meses += 12;
+        }
+        
+        if(anos > 0) return `${anos} anos${meses > 0 ? ` e ${meses} meses` : ''}`;
+        if(meses > 0) return `${meses} meses`;
+        return "Menos de 1 mês";
+    }
+
+    function renderPerfil() {
+        const p = appData.perfil;
+        document.getElementById('header-title').textContent = p.nome ? `Olá, ${p.nome}!` : 'Bom dia, Tutor!';
+        document.getElementById('header-age').textContent = p.nascimento ? calcularIdade(p.nascimento) : 'Toque no ícone para configurar';
+        
+        // Tenta usar a sua imagem (icon.png). Se falhar (ex: no modo de preview do chat), usa uma letra como fallback.
+        const avatarImg = document.getElementById('header-avatar');
+        avatarImg.src = './icon.png';
+        avatarImg.onerror = function() {
+            this.onerror = null;
+            this.src = p.nome ? `https://placehold.co/200x200/0071E3/FFFFFF?text=${p.nome.charAt(0).toUpperCase()}` : 'https://placehold.co/200x200/0071E3/FFFFFF?text=Pet';
+        };
+
+        // Preenche modal
+        document.getElementById('perfil-nome').value = p.nome || '';
+        document.getElementById('perfil-raca').value = p.raca || '';
+        document.getElementById('perfil-nasc').value = p.nascimento || '';
+        document.getElementById('perfil-castracao').value = p.castracao || '';
+    }
+
+    function apagarItem(colecao, id) {
+        const item = (appData[colecao] || []).find(i => i.id === id);
+        let msg = "Tem certeza que deseja excluir este registro?";
+        if (colecao === 'medicamentos' && item) {
+            const nDoses = item.doses ? item.doses.length : 0;
+            msg = `Excluir o tratamento "${item.nome}"?` + (nDoses ? `\n\nIsto apaga também ${nDoses} dose(s) do histórico de administração. Esta ação não pode ser desfeita.` : '');
+        }
+        if(confirm(msg)) {
+            appData[colecao] = appData[colecao].filter(item => item.id !== id);
+            saveData();
+            showToast("Item excluído.");
+            
+            // Re-renderizar a tela correspondente
+            if(colecao === 'vacinas') renderVacinas();
+            if(colecao === 'medicamentos') { renderMedicamentos(); renderDashboardReminders(); }
+            if(colecao === 'registros') renderRegistros();
+            if(colecao === 'pesos') renderPesos();
+            if(colecao === 'alimentacao') renderAlimentacao();
+        }
+    }
+
+    function formatDateBR(dateString) {
+        if(!dateString) return '';
+        const [year, month, day] = dateString.split('T')[0].split('-');
+        return `${day}/${month}/${year}`;
+    }
+
+    function calculateDiffDays(dateString) {
+        const target = new Date(dateString);
+        target.setHours(0,0,0,0);
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+    }
+
+    function getDosesInfo(med) {
+        const dosesPorDia = 24 / med.freqHoras;
+        const totalDoses = Math.max(1, Math.round(dosesPorDia * med.diasTotais));
+        const tomadas = (med.doses ? med.doses.length : med.dosesTomadas) || 0;
+        const progresso = Math.min(100, (tomadas / totalDoses) * 100);
+        return { totalDoses, tomadas, progresso, completo: tomadas >= totalDoses };
+    }
+
+    // Calcula quando a próxima dose vence (última dose + frequência).
+    function getProximaDose(med) {
+        if (!med.doses || med.doses.length === 0) return null;
+        const ultima = med.doses[med.doses.length - 1].ts;
+        if (!ultima) return null;
+        return new Date(new Date(ultima).getTime() + (med.freqHoras || 24) * 3600000);
+    }
+
+    // Retorna o status da próxima dose (vencida, na hora, ou faltando X).
+    function getStatusDose(med) {
+        const prox = getProximaDose(med);
+        if (!prox) return { due: true, overdue: false, label: 'Dar 1ª dose', cor: 'blue', prox: null };
+        const diffMin = Math.round((prox - new Date()) / 60000);
+        if (diffMin <= 0) {
+            const atraso = -diffMin;
+            if (atraso === 0) return { due: true, overdue: false, label: 'Dar agora', cor: 'orange', prox };
+            const lbl = atraso >= 60 ? `Atrasada ${Math.floor(atraso/60)}h${atraso%60 ? ' '+(atraso%60)+'min' : ''}` : `Atrasada ${atraso}min`;
+            return { due: true, overdue: true, label: lbl, cor: atraso > 120 ? 'red' : 'orange', prox };
+        }
+        const lbl = diffMin >= 60 ? `Próxima em ${Math.floor(diffMin/60)}h${diffMin%60 ? ' '+(diffMin%60)+'min' : ''}` : `Próxima em ${diffMin}min`;
+        return { due: false, overdue: false, label: lbl, cor: 'gray', prox };
+    }
+
+    // Assinatura visual: monta a "cartela" de pips de dose para um tratamento.
+    // Preenchidas = tomadas; próxima pulsa (coral/danger) se ativo; vazias = pendentes.
+    function dosePips(med, info, status) {
+        const total = info.totalDoses;
+        const taken = info.tomadas;
+        const MAX = 16;
+        const show = Math.min(total, MAX);
+        let pips = '';
+        for (let i = 0; i < show; i++) {
+            let cls = 'pip-pending';
+            if (i < taken) cls = 'pip-taken';
+            else if (i === taken && med.active) cls = status.overdue ? 'pip-overdue' : (status.due ? 'pip-due' : 'pip-pending');
+            pips += `<span class="pip ${cls}"></span>`;
+        }
+        if (total > MAX) pips += `<span class="pip-more">+${total - MAX}</span>`;
+        return `<div class="pip-strip" role="img" aria-label="${taken} de ${total} doses ministradas">${pips}</div>`;
+    }
+
+    // Mapa de cor do status -> classe do chip de dose.
+    function doseChipClass(status) {
+        return { vital: 'dose-chip-vital', blue: 'dose-chip-coral', orange: 'dose-chip-amber', red: 'dose-chip-danger', gray: 'dose-chip-mute' }[status.cor] || 'dose-chip-coral';
+    }
+
+    function formatDateTimeBR(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Converte uma Date para o formato do input datetime-local (horário local, yyyy-MM-ddTHH:mm).
+    function toLocalDatetimeInput(d) {
+        const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+        return local.toISOString().slice(0, 16);
+    }
+
+    // Abre o modal de dose já preenchido com o horário de agora.
+    window.abrirModalDose = function(id) {
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med || !med.active) return;
+        document.getElementById('dose-med-id').value = id;
+        document.getElementById('dose-med-nome').textContent = `${med.nome} • ${med.dose}`;
+        document.getElementById('dose-datahora').value = toLocalDatetimeInput(new Date());
+        document.getElementById('dose-nota').value = '';
+        openModal('modal-dose');
+    };
+
+    // Registra a dose no horário escolhido (permite ajustar/retroagir) + observação.
+    window.confirmarDose = function(event) {
+        event.preventDefault();
+        const id = parseInt(document.getElementById('dose-med-id').value);
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med) return;
+
+        const val = document.getElementById('dose-datahora').value;
+        if (!val) return;
+        const ts = new Date(val).toISOString();
+        const nota = document.getElementById('dose-nota').value.trim();
+
+        // Guarda anti-dose-dupla baseada no horário escolhido.
+        const status = getStatusDose(med);
+        if (status.prox && new Date(ts) < status.prox) {
+            if (!confirm(`Esse horário é antes da próxima dose prevista (${formatDateTimeBR(status.prox.toISOString())}). Registrar mesmo assim?`)) return;
+        }
+
+        med.doses = med.doses || [];
+        med.doses.push({ ts, nota });
+        med.doses.sort((a, b) => new Date(a.ts) - new Date(b.ts)); // mantém ordem cronológica mesmo retroagindo
+        med.dosesTomadas = med.doses.length;
+
+        const info = getDosesInfo(med);
+        if (info.completo) {
+            med.active = false;
+            showToast("🎉 Tratamento finalizado!");
+        } else {
+            showToast("Dose registrada: " + formatDateTimeBR(ts));
+        }
+        saveData();
+        closeModal(null, 'modal-dose');
+        renderDashboardReminders();
+        renderMedicamentos();
+    };
+
+    // Remove a última dose registrada (caso tenha marcado por engano).
+    window.desfazerUltimaDose = function(id) {
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med || !med.doses || med.doses.length === 0) return;
+        if (!confirm("Remover a última dose registrada?")) return;
+        med.doses.pop();
+        med.dosesTomadas = med.doses.length;
+        if (!getDosesInfo(med).completo) med.active = true;
+        saveData();
+        renderDashboardReminders();
+        renderMedicamentos();
+        showToast("Última dose removida.");
+    };
+
+    // Coloca o modal de medicamento em modo "novo" (cartela nova).
+    window.abrirModalNovoMed = function() {
+        document.getElementById('med-edit-id').value = '';
+        document.getElementById('form-medicamento').reset();
+        document.getElementById('med-alert').checked = true;
+        document.getElementById('med-modal-eyebrow').textContent = 'Cartela nova';
+        document.getElementById('med-modal-titulo').textContent = 'Novo Tratamento';
+        document.getElementById('med-submit-btn').textContent = 'Iniciar Tratamento';
+        openModal('modal-medicamento');
+    };
+
+    // Abre o modal já preenchido para EDITAR um tratamento existente.
+    window.abrirModalEditarMed = function(id) {
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med) return;
+        document.getElementById('med-edit-id').value = id;
+        document.getElementById('med-nome').value = med.nome || '';
+        document.getElementById('med-dose').value = med.dose || '';
+        document.getElementById('med-freq').value = String(med.freqHoras || 24);
+        document.getElementById('med-dias').value = med.diasTotais || 1;
+        document.getElementById('med-alert').checked = med.alert !== false;
+        document.getElementById('med-modal-eyebrow').textContent = `Editando · ${med.doses && med.doses.length ? med.doses.length + ' doses registradas' : 'sem doses'}`;
+        document.getElementById('med-modal-titulo').textContent = 'Editar Tratamento';
+        document.getElementById('med-submit-btn').textContent = 'Salvar alterações';
+        openModal('modal-medicamento');
+    };
+
+    window.registrarReforco = function(id) {
+        const vac = appData.vacinas.find(v => v.id === id);
+        if(vac) {
+            const hojeStr = new Date().toISOString().split('T')[0];
+            appData.vacinas.push({
+                id: Date.now(),
+                nome: vac.nome + " (Reforço)",
+                dataAplicacao: hojeStr,
+                dataReforco: null 
+            });
+            vac.dataReforco = null; 
+            saveData();
+            showToast("Aplicação registrada!");
+            renderVacinas();
+        }
+    };
+
+    function renderDashboardReminders() {
+        const container = document.getElementById('dashboard-reminders');
+        let html = '';
+        
+        const medsAtivos = appData.medicamentos.filter(m => m.active);
+
+        if(medsAtivos.length === 0) {
+            container.innerHTML = `<div class="apple-card text-center py-8">
+                <i data-lucide="pill" class="w-7 h-7 mx-auto mb-2" style="color:var(--text-secondary)"></i>
+                <p class="font-medium" style="color:var(--ink)">Nenhum tratamento em andamento</p>
+                <p class="text-sm mt-1" style="color:var(--text-secondary)">Toque em Remédio no acesso rápido para começar.</p>
+            </div>`;
+            lucide.createIcons();
+            return;
+        }
+
+        // Urgência: atrasadas primeiro, depois as que vencem antes.
+        const urg = m => { const s = getStatusDose(m); const p = getProximaDose(m); return (s.overdue ? -1e15 : s.due ? -1e14 : 0) + (p ? p.getTime() : 0); };
+        const ordenados = [...medsAtivos].sort((a,b) => urg(a) - urg(b));
+
+        const freqOf = med => med.freqHoras === 24 ? '1x ao dia' : med.freqHoras === 720 ? 'Mensal' : `A cada ${med.freqHoras}h`;
+
+        // HERO: a dose mais urgente é a tese da tela.
+        const top = ordenados[0];
+        const tInfo = getDosesInfo(top), tStatus = getStatusDose(top);
+        html += `
+        <div class="dose-hero">
+            <div class="flex items-center justify-between mb-3">
+                <span class="eyebrow" style="color:rgba(255,255,255,0.55)">Próxima dose</span>
+                <span class="dose-chip ${doseChipClass(tStatus)}">${tStatus.overdue ? 'Atrasada' : tStatus.due ? 'Agora' : 'No prazo'}</span>
+            </div>
+            <p class="hero-count mb-1">${tStatus.label.replace(/^Próxima em |^Atrasada /,'').replace('Dar agora','AGORA').replace('Dar 1ª dose','1ª DOSE') || 'AGORA'}</p>
+            <p class="font-bold text-lg">${top.nome} <span class="font-normal" style="opacity:.7">· ${top.dose}</span></p>
+            <p class="text-sm mb-4" style="opacity:.6">${freqOf(top)} · dose ${tInfo.tomadas+ (tInfo.completo?0:1)} de ${tInfo.totalDoses}</p>
+            <button onclick="abrirModalDose(${top.id})" class="w-full font-bold rounded-full py-3 transition" style="background:#fff;color:var(--ink)"><i data-lucide="check" class="w-4 h-4 inline -mt-0.5"></i> Registrar dose</button>
+        </div>`;
+
+        // Demais tratamentos: cartela compacta.
+        ordenados.slice(1).forEach(med => {
+            const info = getDosesInfo(med);
+            const status = getStatusDose(med);
+            html += `
+            <div class="apple-card flex flex-col p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div class="min-w-0">
+                        <h4 class="font-bold truncate">${med.nome} <span class="font-normal text-sm" style="color:var(--text-secondary)">· ${med.dose}</span></h4>
+                        <span class="dose-chip ${doseChipClass(status)} mt-1"><i data-lucide="${status.due ? 'alarm-clock' : 'clock'}" class="w-3 h-3"></i>${status.label}</span>
+                    </div>
+                    <button class="apple-btn-primary shrink-0" style="width:auto;padding:10px 16px;font-size:14px" onclick="abrirModalDose(${med.id})">${status.due ? 'Dar dose' : 'Registrar'}</button>
+                </div>
+                ${dosePips(med, info, status)}
+            </div>`;
+        });
+        container.innerHTML = html;
+        lucide.createIcons();
+    }
+
+    function renderVacinas() {
+        const listContainer = document.getElementById('vacinas-list');
+        const proxContainer = document.getElementById('vacinas-proximas');
+        
+        let htmlList = '';
+        let htmlProx = '';
+
+        const vacinasOrdenadas = [...appData.vacinas].sort((a,b) => new Date(b.dataAplicacao) - new Date(a.dataAplicacao));
+
+        vacinasOrdenadas.forEach(vac => {
+            let vetHtml = vac.veterinario ? `<p class="text-xs text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> Vet: ${vac.veterinario}</p>` : '';
+            
+            htmlList += `
+            <div class="apple-card p-4 flex justify-between items-center bg-white relative group">
+                <div>
+                    <h4 class="font-semibold text-gray-800">${vac.nome}</h4>
+                    <p class="text-sm text-gray-500">Aplicada em: ${formatDateBR(vac.dataAplicacao)}</p>
+                    ${vetHtml}
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="apagarItem('vacinas', ${vac.id})" class="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    <div class="w-8 h-8 rounded-full text-green-500 bg-green-50 flex items-center justify-center">
+                        <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+                    </div>
+                </div>
+            </div>`;
+
+            if (vac.dataReforco) {
+                const diffDays = calculateDiffDays(vac.dataReforco);
+                if (diffDays <= 60) { 
+                    let statusClass, statusText, colorText;
+                    if (diffDays < 0) {
+                        statusClass = 'border-red-500 bg-red-50/30';
+                        statusText = `Atrasada há ${Math.abs(diffDays)} dias`;
+                        colorText = 'text-red-500';
+                    } else if (diffDays <= 15) {
+                        statusClass = 'border-orange-400 bg-orange-50/30';
+                        statusText = `Faltam ${diffDays} dias`;
+                        colorText = 'text-orange-600';
+                    } else {
+                        statusClass = 'border-blue-500 bg-blue-50/30';
+                        statusText = `Em ${diffDays} dias`;
+                        colorText = 'text-blue-600';
+                    }
+
+                    htmlProx += `
+                    <div class="apple-card mb-3 border-l-4 ${statusClass}">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-bold text-gray-900">${vac.nome} <span class="text-xs font-normal text-gray-500 ml-1">Reforço</span></h3>
+                                <p class="text-sm font-medium ${colorText} mt-1">${statusText} (${formatDateBR(vac.dataReforco)})</p>
+                            </div>
+                            <button onclick="registrarReforco(${vac.id})" class="text-xs bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-full font-semibold shadow-sm hover:bg-gray-50 transition shrink-0">
+                                Já Apliquei
+                            </button>
+                        </div>
+                    </div>`;
+                }
+            }
+        });
+
+        if(!htmlProx) {
+            htmlProx = `
+            <div class="apple-card border-dashed border-2 border-gray-200 bg-transparent mb-6 p-4">
+                <p class="text-gray-500 text-sm text-center flex flex-col items-center gap-2">
+                    <i data-lucide="shield-check" class="text-gray-300 w-6 h-6"></i>
+                    Nenhum reforço de vacina próximo.
+                </p>
+            </div>`;
+        } else {
+            htmlProx = `<h3 class="font-semibold text-gray-800 flex items-center gap-2 mb-3"><i data-lucide="bell-ring" class="w-4 h-4 text-orange-500"></i> Alertas de Reforço</h3>` + htmlProx;
+        }
+
+        proxContainer.innerHTML = htmlProx;
+        listContainer.innerHTML = htmlList || '<p class="text-center text-gray-500 text-sm py-4">Nenhuma vacina registrada ainda.</p>';
+        lucide.createIcons();
+    }
+
+    function renderMedicamentos() {
+        const container = document.getElementById('medicamentos-list');
+        let html = '';
+        
+        const medsOrdenados = [...appData.medicamentos].sort((a,b) => (b.active === a.active) ? 0 : a.active ? 1 : -1);
+
+        medsOrdenados.forEach(med => {
+            const info = getDosesInfo(med);
+            const status = getStatusDose(med);
+            const freqText = med.freqHoras === 24 ? '1x ao dia' :
+                             med.freqHoras === 720 ? 'Mensal' :
+                             `A cada ${med.freqHoras}h`;
+            const accent = med.active ? 'var(--coral)' : 'var(--vital)';
+
+            html += `
+            <div class="apple-card p-5 relative overflow-hidden ${!med.active ? 'opacity-70' : ''}">
+                <div class="absolute top-0 left-0 w-1.5 h-full" style="background:${accent}"></div>
+
+                <div class="flex justify-between items-start gap-3 mb-4">
+                    <div class="min-w-0">
+                        <p class="eyebrow mb-1">${med.active ? 'Em tratamento' : 'Concluído'} · ${freqText}</p>
+                        <h4 class="font-bold text-xl truncate" style="color:var(--ink)">${med.nome}</h4>
+                        <div class="flex items-center gap-2 mt-1.5">
+                            <span class="font-mono text-xs px-2 py-0.5 rounded" style="background:rgba(26,23,20,0.06);color:var(--text-secondary)">${med.dose}</span>
+                            <span class="font-mono text-xs" style="color:var(--text-secondary)">${med.diasTotais}d</span>
+                        </div>
+                    </div>
+                    ${med.active
+                        ? `<span class="dose-chip ${doseChipClass(status)}"><i data-lucide="${status.overdue ? 'alarm-clock-off' : (status.due ? 'alarm-clock' : 'clock')}" class="w-3.5 h-3.5"></i>${status.label}</span>`
+                        : `<span class="dose-chip dose-chip-vital"><i data-lucide="check" class="w-3.5 h-3.5"></i>Concluído</span>`}
+                </div>
+
+                <!-- Cartela de doses (assinatura) -->
+                <div class="flex items-center justify-between mb-2">
+                    <span class="eyebrow">Cartela de doses</span>
+                    <span class="font-mono text-xs font-bold" style="color:var(--ink)">${info.tomadas}<span style="color:var(--text-secondary)">/${info.totalDoses}</span></span>
+                </div>
+                ${dosePips(med, info, status)}
+
+                <div class="flex items-center gap-2 mt-4">
+                    ${med.active ? `<button onclick="abrirModalDose(${med.id})" class="apple-btn-primary" style="padding:11px 18px;font-size:14px;flex:1"><i data-lucide="plus" class="w-4 h-4 inline -mt-0.5"></i> Registrar dose</button>` : ''}
+                    <button onclick="abrirModalEditarMed(${med.id})" class="apple-btn-ghost" style="padding:11px 16px;font-size:14px;${med.active ? 'flex:0 0 auto;width:auto' : 'flex:1'}" aria-label="Editar tratamento"><i data-lucide="pencil" class="w-4 h-4 inline -mt-0.5"></i>${med.active ? '' : ' Editar'}</button>
+                    <button onclick="apagarItem('medicamentos', ${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--danger)" aria-label="Excluir tratamento"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+
+                ${(med.doses && med.doses.length) ? `
+                <details class="mt-4 pt-3" style="border-top:1px solid var(--border-color)">
+                    <summary class="eyebrow cursor-pointer flex items-center gap-1">
+                        <i data-lucide="history" class="w-3.5 h-3.5"></i> Histórico de administração (${med.doses.length})
+                    </summary>
+                    <div class="mt-3 space-y-1.5">
+                        ${[...med.doses].reverse().map((d, idx) => `
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="flex items-center gap-2" style="color:var(--text-secondary)">
+                                    <i data-lucide="check" class="w-3.5 h-3.5" style="color:var(--vital)"></i>
+                                    <span class="font-mono text-xs">${formatDateTimeBR(d.ts)}</span>${d.imported ? ' <span class="text-xs" style="opacity:.5">(importado)</span>' : ''}${d.nota ? ` <span class="text-xs italic">— ${d.nota}</span>` : ''}
+                                </span>
+                                ${idx === 0 && med.active ? `<button onclick="desfazerUltimaDose(${med.id})" class="text-xs font-mono font-bold" style="color:var(--danger)">desfazer</button>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </details>` : ''}
+            </div>
+            `;
+        });
+        container.innerHTML = html || '<p class="text-center text-gray-500 text-sm py-4">Nenhum tratamento registrado.</p>';
+        lucide.createIcons();
+    }
+
+    function renderPesos() {
+        const container = document.getElementById('pesos-list');
+        let html = '';
+        
+        // Proteção e ordenação
+        appData.pesos = appData.pesos || [];
+        const pesosOrd = [...appData.pesos].sort((a,b) => new Date(b.data) - new Date(a.data));
+
+        // ATUALIZAÇÃO: Dashboard (Aba Início) reflete o peso mais recente com segurança
+        let displayPeso = '--';
+        if (pesosOrd.length > 0 && pesosOrd[0].valor !== null && pesosOrd[0].valor !== undefined) {
+            const numValor = Number(pesosOrd[0].valor);
+            if (!isNaN(numValor)) {
+                displayPeso = numValor.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+            }
+        }
+        
+        const dashPeso = document.getElementById('dashboard-peso');
+        if(dashPeso) dashPeso.textContent = displayPeso;
+
+        // Renderiza a Lista de Histórico
+        pesosOrd.forEach((peso, index) => {
+            let diffHtml = '';
+            const valAtual = Number(peso.valor);
+            
+            if (index < pesosOrd.length - 1) {
+                const valAntigo = Number(pesosOrd[index+1].valor);
+                const diff = valAtual - valAntigo;
+                if (diff > 0) diffHtml = `<span class="text-xs text-orange-500 flex items-center"><i data-lucide="trending-up" class="w-3 h-3 mr-1"></i> +${diff.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})}kg</span>`;
+                else if (diff < 0) diffHtml = `<span class="text-xs text-green-500 flex items-center"><i data-lucide="trending-down" class="w-3 h-3 mr-1"></i> ${Math.abs(diff).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})}kg</span>`;
+                else diffHtml = `<span class="text-xs text-gray-400 flex items-center"><i data-lucide="minus" class="w-3 h-3 mr-1"></i> Mantido</span>`;
+            }
+
+            html += `
+            <div class="flex items-center justify-between border-b border-gray-100 last:border-0 pb-2 mb-2 group">
+                <div>
+                    <div class="font-bold text-gray-800">${valAtual.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})} <span class="text-sm font-normal text-gray-500">kg</span></div>
+                    <div class="text-xs text-gray-400">${formatDateBR(peso.data)}</div>
+                </div>
+                <div class="flex items-center gap-3">
+                    ${diffHtml}
+                    <button onclick="apagarItem('pesos', ${peso.id})" class="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html || '<p class="text-center text-gray-400 text-sm py-2">Nenhum peso registrado.</p>';
+        lucide.createIcons();
+
+        // ATUALIZAÇÃO: Renderiza o Gráfico Chart.js
+        renderGraficoPeso();
+    }
+
+    function renderGraficoPeso() {
+        if (!document.getElementById('pesoChart')) return;
+        const ctx = document.getElementById('pesoChart').getContext('2d');
+        
+        // Organiza do mais antigo para o mais novo para o gráfico
+        appData.pesos = appData.pesos || [];
+        const pesosChart = [...appData.pesos].sort((a,b) => new Date(a.data) - new Date(b.data));
+        
+        const labels = pesosChart.map(p => formatDateBR(p.data).substring(0, 5)); // Apenas dia/mes
+        const data = pesosChart.map(p => Number(p.valor));
+
+        if(chartInstance) {
+            chartInstance.destroy(); // Apaga o gráfico antigo antes de desenhar o novo
+        }
+
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Peso (kg)',
+                    data: data,
+                    borderColor: '#0071E3',
+                    backgroundColor: 'rgba(0, 113, 227, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: '#0071E3'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    x: {
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderAlimentacao() {
+        const container = document.getElementById('alimentacao-list');
+        let html = '';
+        const alimOrd = [...appData.alimentacao].sort((a,b) => new Date(b.data) - new Date(a.data));
+
+        alimOrd.forEach((alim, index) => {
+            const isCurrent = index === 0;
+            html += `
+            <div class="apple-card p-4 group relative overflow-hidden ${isCurrent ? 'border-green-200 bg-green-50/20' : 'opacity-70'}">
+                ${isCurrent ? '<div class="absolute top-0 left-0 w-1 h-full bg-green-500"></div>' : ''}
+                <div class="flex items-start justify-between">
+                    <div class="flex gap-3">
+                        <div class="w-10 h-10 rounded-full ${isCurrent ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'} flex items-center justify-center shrink-0">
+                            <i data-lucide="bone"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-gray-900">${alim.nome}</h4>
+                                ${isCurrent ? '<span class="bg-green-100 text-green-700 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Atual</span>' : ''}
+                            </div>
+                            <p class="text-sm text-gray-600 mt-1"><span class="font-medium">Quantidade:</span> ${alim.quantidade}</p>
+                            <p class="text-xs text-gray-400 mt-1">Registrado em: ${formatDateBR(alim.data)}</p>
+                        </div>
+                    </div>
+                    <button onclick="apagarItem('alimentacao', ${alim.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html || '<div class="apple-card p-4 border-dashed border-2 border-gray-200 bg-transparent text-center"><p class="text-gray-500 text-sm">Nenhuma dieta registrada.</p></div>';
+        lucide.createIcons();
+    }
+
+    function renderRegistros() {
+        const container = document.getElementById('registros-list');
+        let html = '';
+        const regOrd = [...appData.registros].sort((a,b) => new Date(b.data) - new Date(a.data));
+
+        regOrd.forEach(reg => {
+            let icon = 'file-text';
+            let color = 'blue';
+            if(reg.tipo.includes('Sintoma')) { icon = 'alert-triangle'; color = 'orange'; }
+            if(reg.tipo.includes('Exame')) { icon = 'microscope'; color = 'purple'; }
+            if(reg.tipo.includes('Cirúrgico')) { icon = 'scissors'; color = 'red'; }
+
+            html += `
+            <div class="apple-card p-4 group">
+                <div class="flex items-start gap-4">
+                    <div class="w-10 h-10 rounded-full bg-${color}-50 text-${color}-500 flex items-center justify-center shrink-0">
+                        <i data-lucide="${icon}"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-start">
+                            <h4 class="font-bold text-gray-900">${reg.tipo}</h4>
+                            <span class="text-xs text-gray-400">${formatDateBR(reg.data)}</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">${reg.desc}</p>
+                    </div>
+                    <button onclick="apagarItem('registros', ${reg.id})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html || '<p class="text-center text-gray-500 text-sm py-4">Nenhuma ocorrência registrada.</p>';
+        lucide.createIcons();
+    }
+
+    function switchView(viewId) {
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+        document.getElementById(`view-${viewId}`).classList.add('active');
+        
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.querySelector(`.nav-item[data-target="${viewId}"]`).classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function openModal(modalId) {
+        document.getElementById(modalId).classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(event, modalId) {
+        if (!event || event.target.id === modalId || event.type === 'submit') {
+            document.getElementById(modalId).classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+
+    let toastTimeout;
+    function showToast(message) {
+        const toast = document.getElementById('toast');
+        document.getElementById('toast-message').textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+
+    function handleFormSubmit(event, tipo) {
+        event.preventDefault();
+        
+        const btn = event.target.querySelector('button[type="submit"]');
+        const originalText = btn.textContent;
+        btn.textContent = 'Salvando...';
+        btn.style.opacity = '0.7';
+
+        setTimeout(() => {
+            if(tipo === 'perfil') {
+                appData.perfil = {
+                    nome: document.getElementById('perfil-nome').value,
+                    raca: document.getElementById('perfil-raca').value,
+                    nascimento: document.getElementById('perfil-nasc').value,
+                    castracao: document.getElementById('perfil-castracao').value
+                };
+                renderPerfil(); // Garante que a UI do modal seja atualizada sem resetar os dados erradamente
+            }
+            else if(tipo === 'medicamento') {
+                const nome = document.getElementById('med-nome').value.trim();
+                const dose = document.getElementById('med-dose').value.trim();
+                const freq = parseInt(document.getElementById('med-freq').value);
+                const dias = parseInt(document.getElementById('med-dias').value);
+                const querAlerta = document.getElementById('med-alert').checked;
+                const editId = document.getElementById('med-edit-id').value;
+
+                // Validação: protege contra dados inválidos antes de salvar.
+                if (!nome || !dose || isNaN(dias) || dias < 1 || dias > 3650) {
+                    showToast('Preencha nome, dose e uma duração válida (1–3650 dias).');
+                    btn.textContent = originalText; btn.style.opacity = '1';
+                    return;
+                }
+
+                if (editId) {
+                    // EDIÇÃO: preserva doses/histórico e reavalia se o tratamento volta a ficar ativo.
+                    const med = appData.medicamentos.find(m => m.id === parseInt(editId));
+                    if (med) {
+                        med.nome = nome; med.dose = dose;
+                        med.freqHoras = freq; med.diasTotais = dias; med.alert = querAlerta;
+                        med.active = !getDosesInfo(med).completo;
+                        showToast('Tratamento atualizado.');
+                    }
+                } else {
+                    appData.medicamentos.unshift({
+                        id: Date.now(),
+                        nome, dose,
+                        freqHoras: freq,
+                        diasTotais: dias,
+                        dosesTomadas: 0,
+                        doses: [],
+                        dataInicio: new Date().toISOString(),
+                        active: true,
+                        alert: querAlerta
+                    });
+                    if (querAlerta) pedirPermissaoNotificacao();
+                }
+                document.getElementById('med-edit-id').value = '';
+                renderMedicamentos();
+                renderDashboardReminders();
+                switchView('medicamentos');
+            }
+            else if (tipo === 'vacina') {
+                appData.vacinas.unshift({
+                    id: Date.now(),
+                    nome: document.getElementById('vac-nome').value,
+                    dataAplicacao: document.getElementById('vac-data').value,
+                    dataReforco: document.getElementById('vac-reforco').value || null,
+                    veterinario: document.getElementById('vac-vet').value || ''
+                });
+                renderVacinas();
+                switchView('vacinas');
+            }
+            else if (tipo === 'peso') {
+                let valorInput = document.getElementById('peso-valor').value;
+                valorInput = valorInput.replace(',', '.'); // Garante suporte a números com vírgula
+                let valorNum = parseFloat(valorInput);
+                
+                if (!isNaN(valorNum)) {
+                    appData.pesos = appData.pesos || [];
+                    appData.pesos.unshift({
+                        id: Date.now(),
+                        valor: valorNum,
+                        data: new Date().toISOString()
+                    });
+                    renderPesos();
+                }
+            }
+            else if (tipo === 'registro') {
+                appData.registros.unshift({
+                    id: Date.now(),
+                    tipo: document.getElementById('reg-tipo').value,
+                    desc: document.getElementById('reg-desc').value,
+                    data: new Date().toISOString()
+                });
+                renderRegistros();
+            }
+            else if (tipo === 'alimentacao') {
+                appData.alimentacao.unshift({
+                    id: Date.now(),
+                    nome: document.getElementById('alim-nome').value,
+                    quantidade: document.getElementById('alim-qtd').value,
+                    data: new Date().toISOString()
+                });
+                renderAlimentacao();
+            }
+
+            saveData();
+            closeModal(null, `modal-${tipo}`);
+            btn.textContent = originalText;
+            btn.style.opacity = '1';
+            
+            // Corrige o bug de limpar o form do perfil ao salvar
+            if (tipo !== 'perfil') {
+                event.target.reset(); 
+            }
+            
+            showToast('Salvo com sucesso!');
+        }, 400);
+    }
+
+    // --- FUNÇÕES DE EXPORTAÇÃO E BACKUP ---
+    function exportJSON() {
+        const dataStr = JSON.stringify(appData, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `petcare_backup_${appData.perfil.nome || 'pet'}_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Backup baixado com sucesso!");
+    }
+
+    function importJSON(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                // Validação básica do arquivo JSON
+                if (importedData && importedData.perfil) {
+                    appData = importedData;
+                    saveData();
+                    showToast("Dados restaurados! Atualizando...");
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    alert("Arquivo de backup inválido ou corrompido.");
+                }
+            } catch (err) {
+                alert("Erro ao ler o arquivo JSON.");
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function exportPDF() {
+        showToast("Gerando PDF, aguarde...");
+        
+        // Criar um elemento HTML temporário invisível e formatado para o Relatório
+        const pdfContainer = document.createElement('div');
+        pdfContainer.style.padding = '30px';
+        pdfContainer.style.fontFamily = 'Helvetica, Arial, sans-serif';
+        pdfContainer.style.color = '#1D1D1F';
+        
+        // Estrutura do Documento PDF
+        pdfContainer.innerHTML = `
+            <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #0071E3; margin-bottom: 5px;">Prontuário de Saúde Pet</h1>
+                <h2 style="margin: 0; font-size: 24px;">${appData.perfil.nome || 'Meu Pet'}</h2>
+            </div>
+            
+            <div style="background: #f5f5f7; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                <p style="margin: 5px 0;"><strong>Espécie/Raça:</strong> ${appData.perfil.raca || 'Não informado'}</p>
+                <p style="margin: 5px 0;"><strong>Nascimento:</strong> ${formatDateBR(appData.perfil.nascimento) || 'Não informado'} ${appData.perfil.nascimento ? '('+calcularIdade(appData.perfil.nascimento)+')' : ''}</p>
+                <p style="margin: 5px 0;"><strong>Castração:</strong> ${appData.perfil.castracao ? formatDateBR(appData.perfil.castracao) : 'Não informado'}</p>
+                <p style="margin: 5px 0;"><strong>Último Peso:</strong> ${appData.pesos.length > 0 ? appData.pesos[0].valor + ' kg' : 'Sem registros'}</p>
+            </div>
+
+            <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px;">Vacinas</h3>
+            <ul style="padding-left: 20px;">
+                ${appData.vacinas.map(v => `<li style="margin-bottom: 5px;"><strong>${v.nome}</strong> - Aplicada em: ${formatDateBR(v.dataAplicacao)} ${v.veterinario ? '(Vet: '+v.veterinario+')' : ''}</li>`).join('') || '<li>Nenhuma vacina registrada</li>'}
+            </ul>
+
+            <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Ocorrências Clínicas e Exames</h3>
+            <ul style="padding-left: 20px;">
+                ${appData.registros.map(r => `<li style="margin-bottom: 10px;"><strong>${formatDateBR(r.data)} - ${r.tipo}:</strong><br> ${r.desc}</li>`).join('') || '<li>Nenhum registro clínico</li>'}
+            </ul>
+
+            <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Histórico de Tratamentos</h3>
+            <ul style="padding-left: 20px;">
+                ${appData.medicamentos.map(m => {
+                    const info = getDosesInfo(m);
+                    const dosesLog = (m.doses && m.doses.length)
+                        ? `<div style="font-size: 12px; color: #555; margin-top: 4px;"><strong>Doses ministradas (${m.doses.length}/${info.totalDoses}):</strong><br>${m.doses.map(d => formatDateTimeBR(d.ts) + (d.imported ? ' (importado)' : '') + (d.nota ? ' — ' + d.nota : '')).join('<br>')}</div>`
+                        : '<div style="font-size: 12px; color: #999; margin-top: 4px;">Nenhuma dose registrada.</div>';
+                    return `<li style="margin-bottom: 12px;"><strong>${m.nome}</strong> (${m.dose}) - Duração: ${m.diasTotais} dias - Status: ${m.active ? 'Em andamento' : 'Concluído'}${dosesLog}</li>`;
+                }).join('') || '<li>Nenhum tratamento registrado</li>'}
+            </ul>
+        `;
+        
+        // Chamada da biblioteca html2pdf
+        const opt = {
+            margin:       10,
+            filename:     `prontuario_${appData.perfil.nome || 'pet'}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(pdfContainer).save().then(() => {
+            showToast("PDF salvo com sucesso!");
+        });
+    }
+
+    // --- NOTIFICAÇÕES DE DOSE ---
+    function pedirPermissaoNotificacao() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+
+    // Dispara notificação quando uma dose vence. Evita repetir usando o horário-alvo como chave.
+    function checkDoseNotifications() {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        let mudou = false;
+        appData.medicamentos.filter(m => m.active && m.alert).forEach(m => {
+            const prox = getProximaDose(m);
+            if (prox && prox <= new Date()) {
+                const chave = prox.toISOString();
+                if (m.lastNotifiedSlot !== chave) {
+                    try {
+                        new Notification('Hora do remédio 💊', {
+                            body: `${m.nome} — ${m.dose}`,
+                            icon: './icon.png',
+                            tag: 'dose-' + m.id
+                        });
+                    } catch (e) {}
+                    m.lastNotifiedSlot = chave;
+                    mudou = true;
+                }
+            }
+        });
+        if (mudou) saveData();
+    }
+
+    // Revisa estados a cada minuto: atualiza contadores "Próxima dose" e dispara notificações.
+    setInterval(() => {
+        checkDoseNotifications();
+        if (document.getElementById('view-dashboard').classList.contains('active')) renderDashboardReminders();
+        if (document.getElementById('view-medicamentos').classList.contains('active')) renderMedicamentos();
+    }, 60000);
+
+    // ====================================================================
+    // SUPABASE — Autenticação (email + senha) e sincronização
+    // Preencha SUPABASE_URL e SUPABASE_ANON com os dados do seu projeto.
+    // Enquanto estiverem vazios, o app roda em MODO LOCAL (como antes).
+    // ====================================================================
+    const SUPABASE_URL  = ''; // ex: https://xxxxxxxx.supabase.co
+    const SUPABASE_ANON = ''; // anon public key (segura no front por causa da RLS)
+
+    const cloudAtivo = !!(SUPABASE_URL && SUPABASE_ANON && window.supabase);
+    const sb = cloudAtivo ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON) : null;
+
+    let usuarioAtual = null;
+    let authModo = 'login'; // 'login' | 'cadastro'
+    let appIniciado = false;
+
+    function mostrarTelaLogin() {
+        document.getElementById('auth-overlay').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        lucide.createIcons();
+    }
+    function esconderTelaLogin() {
+        document.getElementById('auth-overlay').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    window.toggleAuthMode = function() {
+        authModo = authModo === 'login' ? 'cadastro' : 'login';
+        const ehLogin = authModo === 'login';
+        document.getElementById('auth-submit').textContent = ehLogin ? 'Entrar' : 'Criar conta';
+        document.getElementById('auth-toggle').textContent = ehLogin ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Entrar';
+        document.getElementById('auth-subtitle').textContent = ehLogin ? 'Entre para sincronizar a saúde do seu pet' : 'Crie sua conta Vianexx PetCare';
+        const erro = document.getElementById('auth-erro');
+        erro.classList.add('hidden');
+    };
+
+    function traduzErroAuth(msg) {
+        if (/Invalid login/i.test(msg)) return 'Email ou senha incorretos.';
+        if (/already registered/i.test(msg)) return 'Esse email já tem conta. Faça login.';
+        if (/at least 6/i.test(msg)) return 'A senha precisa de pelo menos 6 caracteres.';
+        if (/Email not confirmed/i.test(msg)) return 'Confirme seu email antes de entrar.';
+        return msg;
+    }
+
+    window.handleAuth = async function(event) {
+        event.preventDefault();
+        if (!cloudAtivo) return;
+        const email = document.getElementById('auth-email').value.trim();
+        const senha = document.getElementById('auth-senha').value;
+        const erro = document.getElementById('auth-erro');
+        const btn = document.getElementById('auth-submit');
+        const txt = btn.textContent;
+        btn.textContent = 'Aguarde...'; btn.style.opacity = '0.7';
+        erro.classList.add('hidden'); erro.classList.remove('text-green-600'); erro.classList.add('text-red-500');
+
+        const resp = authModo === 'cadastro'
+            ? await sb.auth.signUp({ email, password: senha })
+            : await sb.auth.signInWithPassword({ email, password: senha });
+
+        btn.textContent = txt; btn.style.opacity = '1';
+
+        if (resp.error) {
+            erro.textContent = traduzErroAuth(resp.error.message);
+            erro.classList.remove('hidden');
+            return;
+        }
+        if (authModo === 'cadastro' && !resp.data.session) {
+            erro.textContent = 'Conta criada! Confirme o email para entrar.';
+            erro.classList.remove('text-red-500'); erro.classList.add('text-green-600');
+            erro.classList.remove('hidden');
+            return;
+        }
+        // Sucesso com sessão: onAuthStateChange cuida de iniciar o app.
+    };
+
+    window.usarSemConta = function() {
+        localStorage.setItem('petcare_modo_local', '1');
+        esconderTelaLogin();
+        iniciarApp();
+    };
+
+    window.logout = async function() {
+        if (sb) await sb.auth.signOut();
+        localStorage.removeItem('petcare_modo_local');
+        location.reload();
+    };
+
+    // Envia os dados deste aparelho (appData) para a conta na nuvem.
+    async function migrarLocalParaSupabase(user) {
+        try {
+            const p = appData.perfil || {};
+            const { data: pet, error: e1 } = await sb.from('pets').insert({
+                owner_id: user.id,
+                nome: p.nome || 'Meu Pet',
+                especie_raca: p.raca || null,
+                nascimento: p.nascimento || null,
+                castracao: p.castracao || null
+            }).select().single();
+            if (e1) throw e1;
+
+            for (const m of (appData.medicamentos || [])) {
+                const { data: med, error: e2 } = await sb.from('medicamentos').insert({
+                    pet_id: pet.id, nome: m.nome, dose: m.dose,
+                    freq_horas: m.freqHoras, dias_totais: m.diasTotais,
+                    data_inicio: m.dataInicio || new Date().toISOString(),
+                    active: !!m.active, alert: !!m.alert
+                }).select().single();
+                if (e2) throw e2;
+                const doses = (m.doses || []).map(d => ({
+                    medicamento_id: med.id, ts: d.ts, nota: d.nota || null, imported: !!d.imported
+                }));
+                if (doses.length) { const { error: e3 } = await sb.from('doses').insert(doses); if (e3) throw e3; }
+            }
+
+            const vac = (appData.vacinas || []).map(v => ({
+                pet_id: pet.id, nome: v.nome, data_aplicacao: v.dataAplicacao,
+                data_reforco: v.dataReforco || null, veterinario: v.veterinario || null
+            }));
+            if (vac.length) { const { error } = await sb.from('vacinas').insert(vac); if (error) throw error; }
+
+            const reg = (appData.registros || []).map(r => ({
+                pet_id: pet.id, tipo: r.tipo, descricao: r.desc,
+                data: (r.data || new Date().toISOString()).split('T')[0]
+            }));
+            if (reg.length) { const { error } = await sb.from('registros').insert(reg); if (error) throw error; }
+
+            const pes = (appData.pesos || []).map(x => ({ pet_id: pet.id, valor: x.valor, data: x.data }));
+            if (pes.length) { const { error } = await sb.from('pesos').insert(pes); if (error) throw error; }
+
+            const ali = (appData.alimentacao || []).map(a => ({ pet_id: pet.id, nome: a.nome, quantidade: a.quantidade, data: a.data }));
+            if (ali.length) { const { error } = await sb.from('alimentacao').insert(ali); if (error) throw error; }
+
+            return { ok: true, petId: pet.id };
+        } catch (err) {
+            return { ok: false, erro: err.message || String(err) };
+        }
+    }
+
+    window.enviarParaNuvem = async function() {
+        if (!cloudAtivo || !usuarioAtual) return;
+        if (!confirm('Enviar os dados deste aparelho para sua conta na nuvem?')) return;
+        showToast('Enviando para a nuvem...');
+        const r = await migrarLocalParaSupabase(usuarioAtual);
+        showToast(r.ok ? 'Dados enviados para a nuvem!' : ('Falha ao enviar: ' + r.erro));
+    };
+
+    function atualizarUIConta() {
+        const box = document.getElementById('conta-box');
+        if (!box) return;
+        if (cloudAtivo && usuarioAtual) {
+            box.style.display = 'block';
+            document.getElementById('conta-email').textContent = usuarioAtual.email;
+            lucide.createIcons();
+        } else {
+            box.style.display = 'none';
+        }
+    }
+
+    // --- INICIALIZAÇÃO DO APP ---
+    function iniciarApp() {
+        if (appIniciado) { atualizarUIConta(); return; }
+        appIniciado = true;
+        initData();
+        renderDashboardReminders();
+        renderVacinas();
+        renderMedicamentos();
+        renderPesos();
+        renderAlimentacao();
+        renderRegistros();
+        checkDoseNotifications();
+        atualizarUIConta();
+    }
+
+    // --- ARRANQUE: decide entre login e modo local ---
+    if (cloudAtivo) {
+        sb.auth.onAuthStateChange((_event, session) => {
+            if (session) {
+                usuarioAtual = session.user;
+                esconderTelaLogin();
+                iniciarApp();
+                atualizarUIConta();
+            } else if (localStorage.getItem('petcare_modo_local')) {
+                esconderTelaLogin();
+                iniciarApp();
+            } else {
+                mostrarTelaLogin();
+            }
+        });
+    } else {
+        // Supabase não configurado: modo local (comportamento original), sem login.
+        iniciarApp();
+    }
+
+    window.addEventListener('popstate', (e) => {
+        const activeModal = document.querySelector('.modal-overlay.active');
+        if(activeModal) {
+            closeModal(null, activeModal.id);
+            history.pushState(null, null, document.URL);
+        }
+    });
+    history.pushState(null, null, document.URL);
+
+    // --- PWA SETUP & ATUALIZAÇÕES ---
+    // 1. Injetar Manifest dinamicamente para manter o app em 1 único arquivo
+    const manifestJSON = {
+        "name": "PetCare - Saúde Pet",
+        "short_name": "PetCare",
+        "start_url": "./",
+        "display": "standalone",
+        "background_color": "#F5F5F7",
+        "theme_color": "#F5F5F7",
+        "icons": [
+            {"src": "./icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "./icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+        ]
+    };
+    const manifestBlob = new Blob([JSON.stringify(manifestJSON)], {type: 'application/json'});
+    document.querySelector('#manifest-link').setAttribute('href', URL.createObjectURL(manifestBlob));
+
+    // 2. Service Worker para funcionamento Offline e Alerta de Atualização
+    const swCode = `
+        const CACHE_NAME = 'petcare-v1';
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+        self.addEventListener('fetch', (e) => {
+            e.respondWith(fetch(e.request).catch(() => new Response('Offline')));
+        });
+    `;
+    const swBlob = new Blob([swCode], {type: 'application/javascript'});
+    
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register(URL.createObjectURL(swBlob)).then((reg) => {
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            document.getElementById('update-toast').classList.remove('translate-y-48');
+                        }
+                    });
+                });
+            }).catch(err => console.log('Erro SW:', err));
+        });
+    }
+
+</script>
+</body>
+</html>
