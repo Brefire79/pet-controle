@@ -511,6 +511,11 @@
             <div class="space-y-4" id="medicamentos-list">
                 <!-- Populado por JS -->
             </div>
+
+            <!-- Histórico consolidado de doses ministradas -->
+            <div id="historico-doses" class="mt-8">
+                <!-- Populado por JS -->
+            </div>
         </section>
 
         <!-- VIEW: SAÚDE & EXAMES -->
@@ -724,6 +729,36 @@
                     <input type="text" id="dose-nota" class="apple-input" placeholder="Ex: com comida, vomitou, recusou...">
                 </div>
                 <button type="submit" class="apple-btn-primary mt-2">Registrar Dose</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Interromper Tratamento -->
+<div class="modal-overlay" id="modal-interromper" onclick="closeModal(event, 'modal-interromper')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <p class="eyebrow mb-1">Parar medicamento em uso</p>
+        <h2 class="text-2xl font-bold mb-1">Interromper Tratamento</h2>
+        <p class="text-sm text-gray-500 mb-6" id="int-med-nome">—</p>
+        <form onsubmit="confirmarInterrupcao(event)">
+            <input type="hidden" id="int-med-id">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                    <select id="int-motivo" class="apple-input bg-white">
+                        <option value="Orientação do veterinário">Orientação do veterinário</option>
+                        <option value="Reação adversa">Reação adversa</option>
+                        <option value="Melhora do quadro">Melhora do quadro</option>
+                        <option value="Outro">Outro</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Observação (opcional)</label>
+                    <input type="text" id="int-obs" class="apple-input" placeholder="Ex: vet pediu por telefone em 27/06">
+                </div>
+                <p class="text-xs text-gray-500">O histórico de doses já registradas é preservado. Você pode retomar depois.</p>
+                <button type="submit" class="apple-btn-primary mt-2" style="background:var(--amber)">Interromper tratamento</button>
             </div>
         </form>
     </div>
@@ -1123,6 +1158,13 @@
         return `<div class="pip-strip" role="img" aria-label="${taken} de ${total} doses ministradas">${pips}</div>`;
     }
 
+    // Estado do tratamento: ativo, interrompido (parado antes do fim) ou concluído.
+    function getStatusTratamento(med) {
+        if (med.interrompido) return { key: 'interrompido', label: 'Interrompido', cor: 'var(--amber)', chip: 'dose-chip-amber' };
+        if (!med.active) return { key: 'concluido', label: 'Concluído', cor: 'var(--vital)', chip: 'dose-chip-vital' };
+        return { key: 'ativo', label: 'Ativo', cor: 'var(--coral)', chip: '' };
+    }
+
     // Mapa de cor do status -> classe do chip de dose.
     function doseChipClass(status) {
         return { vital: 'dose-chip-vital', blue: 'dose-chip-coral', orange: 'dose-chip-amber', red: 'dose-chip-danger', gray: 'dose-chip-mute' }[status.cor] || 'dose-chip-coral';
@@ -1200,6 +1242,51 @@
         renderDashboardReminders();
         renderMedicamentos();
         showToast("Última dose removida.");
+    };
+
+    // Abre o modal para interromper um tratamento em uso (ex.: orientação do veterinário).
+    window.abrirModalInterromper = function(id) {
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med || !med.active || med.interrompido) return;
+        document.getElementById('int-med-id').value = id;
+        document.getElementById('int-med-nome').textContent = `${med.nome} • ${med.dose}`;
+        document.getElementById('int-motivo').value = 'Orientação do veterinário';
+        document.getElementById('int-obs').value = '';
+        openModal('modal-interromper');
+    };
+
+    // Confirma a interrupção: grava motivo + data e marca como interrompido (≠ concluído).
+    window.confirmarInterrupcao = function(event) {
+        event.preventDefault();
+        const id = parseInt(document.getElementById('int-med-id').value);
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med) return;
+        const motivo = document.getElementById('int-motivo').value;
+        const obs = document.getElementById('int-obs').value.trim();
+        med.interrompido = true;
+        med.active = false;
+        med.motivoInterrupcao = obs ? `${motivo} — ${obs}` : motivo;
+        med.dataInterrupcao = new Date().toISOString();
+        saveData();
+        closeModal(null, 'modal-interromper');
+        renderMedicamentos();
+        renderDashboardReminders();
+        showToast("Tratamento interrompido.");
+    };
+
+    // Retoma um tratamento interrompido (volta a ficar ativo se ainda houver doses).
+    window.retomarTratamento = function(id) {
+        const med = appData.medicamentos.find(m => m.id === id);
+        if (!med || !med.interrompido) return;
+        if (!confirm(`Retomar o tratamento "${med.nome}"?`)) return;
+        med.interrompido = false;
+        med.motivoInterrupcao = '';
+        med.dataInterrupcao = null;
+        med.active = !getDosesInfo(med).completo;
+        saveData();
+        renderMedicamentos();
+        renderDashboardReminders();
+        showToast(med.active ? "Tratamento retomado." : "Tratamento já tinha todas as doses — marcado como concluído.");
     };
 
     // Abre o registro clínico já com a data de hoje (permite registrar consulta passada).
@@ -1393,32 +1480,65 @@
         const container = document.getElementById('medicamentos-list');
         let html = '';
         
-        const medsOrdenados = [...appData.medicamentos].sort((a,b) => (b.active === a.active) ? 0 : a.active ? 1 : -1);
+        const prioridade = m => { const s = getStatusTratamento(m); return s.key === 'ativo' ? 0 : s.key === 'interrompido' ? 1 : 2; };
+        const medsOrdenados = [...appData.medicamentos].sort((a,b) => prioridade(a) - prioridade(b));
 
         medsOrdenados.forEach(med => {
             const info = getDosesInfo(med);
             const status = getStatusDose(med);
+            const stTrat = getStatusTratamento(med);
             const freqText = med.freqHoras === 24 ? '1x ao dia' :
                              med.freqHoras === 720 ? 'Mensal' :
                              `A cada ${med.freqHoras}h`;
-            const accent = med.active ? 'var(--coral)' : 'var(--vital)';
+            const eyebrowTxt = stTrat.key === 'ativo' ? 'Em tratamento' : stTrat.key === 'interrompido' ? 'Interrompido' : 'Concluído';
+
+            // Chip de cabeçalho por estado
+            const chipHtml = stTrat.key === 'ativo'
+                ? `<span class="dose-chip ${doseChipClass(status)}"><i data-lucide="${status.overdue ? 'alarm-clock-off' : (status.due ? 'alarm-clock' : 'clock')}" class="w-3.5 h-3.5"></i>${status.label}</span>`
+                : stTrat.key === 'interrompido'
+                    ? `<span class="dose-chip dose-chip-amber"><i data-lucide="pause" class="w-3.5 h-3.5"></i>Interrompido</span>`
+                    : `<span class="dose-chip dose-chip-vital"><i data-lucide="check" class="w-3.5 h-3.5"></i>Concluído</span>`;
+
+            // Aviso de interrupção (motivo + data)
+            const interHtml = stTrat.key === 'interrompido' ? `
+                <div class="mt-3 p-3 rounded-xl text-xs" style="background:rgba(245,166,35,0.1);color:#7a5200">
+                    <span class="font-bold flex items-center gap-1"><i data-lucide="octagon-pause" class="w-3.5 h-3.5"></i> Uso interrompido${med.dataInterrupcao ? ' em ' + formatDateBR(med.dataInterrupcao) : ''}</span>
+                    ${med.motivoInterrupcao ? `<p class="mt-1">${esc(med.motivoInterrupcao)}</p>` : ''}
+                </div>` : '';
+
+            // Botões por estado
+            let botoes = '';
+            if (stTrat.key === 'ativo') {
+                botoes = `
+                    <button onclick="abrirModalDose(${med.id})" class="apple-btn-primary" style="padding:11px 16px;font-size:14px;flex:1"><i data-lucide="plus" class="w-4 h-4 inline -mt-0.5"></i> Registrar dose</button>
+                    <button onclick="abrirModalInterromper(${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--amber)" aria-label="Interromper tratamento" title="Interromper"><i data-lucide="octagon-pause" class="w-4 h-4"></i></button>
+                    <button onclick="abrirModalEditarMed(${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto" aria-label="Editar tratamento" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                    <button onclick="apagarItem('medicamentos', ${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--danger)" aria-label="Excluir tratamento" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+            } else if (stTrat.key === 'interrompido') {
+                botoes = `
+                    <button onclick="retomarTratamento(${med.id})" class="apple-btn-primary" style="padding:11px 16px;font-size:14px;flex:1;background:var(--vital)"><i data-lucide="play" class="w-4 h-4 inline -mt-0.5"></i> Retomar</button>
+                    <button onclick="abrirModalEditarMed(${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto" aria-label="Editar tratamento" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                    <button onclick="apagarItem('medicamentos', ${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--danger)" aria-label="Excluir tratamento" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+            } else {
+                botoes = `
+                    <button onclick="abrirModalEditarMed(${med.id})" class="apple-btn-ghost" style="padding:11px 16px;font-size:14px;flex:1"><i data-lucide="pencil" class="w-4 h-4 inline -mt-0.5"></i> Editar</button>
+                    <button onclick="apagarItem('medicamentos', ${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--danger)" aria-label="Excluir tratamento" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+            }
 
             html += `
-            <div class="apple-card p-5 relative overflow-hidden ${!med.active ? 'opacity-70' : ''}">
-                <div class="absolute top-0 left-0 w-1.5 h-full" style="background:${accent}"></div>
+            <div class="apple-card p-5 relative overflow-hidden ${stTrat.key !== 'ativo' ? 'opacity-80' : ''}">
+                <div class="absolute top-0 left-0 w-1.5 h-full" style="background:${stTrat.cor}"></div>
 
                 <div class="flex justify-between items-start gap-3 mb-4">
                     <div class="min-w-0">
-                        <p class="eyebrow mb-1">${med.active ? 'Em tratamento' : 'Concluído'} · ${freqText}</p>
+                        <p class="eyebrow mb-1">${eyebrowTxt} · ${freqText}</p>
                         <h4 class="font-bold text-xl truncate" style="color:var(--ink)">${esc(med.nome)}</h4>
                         <div class="flex items-center gap-2 mt-1.5">
                             <span class="font-mono text-xs px-2 py-0.5 rounded" style="background:rgba(26,23,20,0.06);color:var(--text-secondary)">${esc(med.dose)}</span>
                             <span class="font-mono text-xs" style="color:var(--text-secondary)">${med.diasTotais}d</span>
                         </div>
                     </div>
-                    ${med.active
-                        ? `<span class="dose-chip ${doseChipClass(status)}"><i data-lucide="${status.overdue ? 'alarm-clock-off' : (status.due ? 'alarm-clock' : 'clock')}" class="w-3.5 h-3.5"></i>${status.label}</span>`
-                        : `<span class="dose-chip dose-chip-vital"><i data-lucide="check" class="w-3.5 h-3.5"></i>Concluído</span>`}
+                    ${chipHtml}
                 </div>
 
                 <!-- Cartela de doses (assinatura) -->
@@ -1427,11 +1547,10 @@
                     <span class="font-mono text-xs font-bold" style="color:var(--ink)">${info.tomadas}<span style="color:var(--text-secondary)">/${info.totalDoses}</span></span>
                 </div>
                 ${dosePips(med, info, status)}
+                ${interHtml}
 
                 <div class="flex items-center gap-2 mt-4">
-                    ${med.active ? `<button onclick="abrirModalDose(${med.id})" class="apple-btn-primary" style="padding:11px 18px;font-size:14px;flex:1"><i data-lucide="plus" class="w-4 h-4 inline -mt-0.5"></i> Registrar dose</button>` : ''}
-                    <button onclick="abrirModalEditarMed(${med.id})" class="apple-btn-ghost" style="padding:11px 16px;font-size:14px;${med.active ? 'flex:0 0 auto;width:auto' : 'flex:1'}" aria-label="Editar tratamento"><i data-lucide="pencil" class="w-4 h-4 inline -mt-0.5"></i>${med.active ? '' : ' Editar'}</button>
-                    <button onclick="apagarItem('medicamentos', ${med.id})" class="apple-btn-ghost" style="padding:11px 14px;width:auto;flex:0 0 auto;color:var(--danger)" aria-label="Excluir tratamento"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    ${botoes}
                 </div>
 
                 ${(med.doses && med.doses.length) ? `
@@ -1455,7 +1574,67 @@
             `;
         });
         container.innerHTML = html || '<p class="text-center text-gray-500 text-sm py-4">Nenhum tratamento registrado.</p>';
+        renderHistoricoDoses();
         lucide.createIcons();
+    }
+
+    // Junta as doses de TODOS os tratamentos numa linha do tempo (mais recentes primeiro),
+    // agrupadas por dia. É o "prontuário de doses ministradas".
+    function renderHistoricoDoses() {
+        const container = document.getElementById('historico-doses');
+        if (!container) return;
+
+        const todas = [];
+        (appData.medicamentos || []).forEach(m => {
+            (m.doses || []).forEach(d => { if (d.ts) todas.push({ medNome: m.nome, medDose: m.dose, ts: d.ts, nota: d.nota, imported: d.imported }); });
+        });
+        todas.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+        if (!todas.length) {
+            container.innerHTML = `<h3 class="text-lg font-bold mb-3">Histórico de doses</h3>
+                <div class="apple-card text-center py-6"><p class="text-sm" style="color:var(--text-secondary)">Nenhuma dose ministrada ainda.</p></div>`;
+            return;
+        }
+
+        // Agrupa por dia (chave AAAA-MM-DD no horário local)
+        const grupos = {};
+        todas.forEach(d => {
+            const dt = new Date(d.ts);
+            const chave = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+            (grupos[chave] = grupos[chave] || []).push(d);
+        });
+
+        const hojeKey = (() => { const n = new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); })();
+        const ontem = new Date(Date.now() - 86400000);
+        const ontemKey = ontem.getFullYear()+'-'+String(ontem.getMonth()+1).padStart(2,'0')+'-'+String(ontem.getDate()).padStart(2,'0');
+
+        let html = `<div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-bold">Histórico de doses</h3>
+            <span class="font-mono text-xs" style="color:var(--text-secondary)">${todas.length} no total</span>
+        </div><div class="apple-card p-4 space-y-4">`;
+
+        Object.keys(grupos).forEach(chave => {
+            const rotulo = chave === hojeKey ? 'Hoje' : chave === ontemKey ? 'Ontem' : formatDateBR(chave);
+            html += `<div>
+                <p class="eyebrow mb-2">${rotulo} · ${grupos[chave].length} dose${grupos[chave].length>1?'s':''}</p>
+                <div class="space-y-2">`;
+            grupos[chave].forEach(d => {
+                const hora = new Date(d.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                html += `
+                <div class="flex items-start gap-3">
+                    <span class="font-mono text-xs font-bold shrink-0 mt-0.5" style="color:var(--vital)">${hora}</span>
+                    <div class="min-w-0">
+                        <span class="text-sm font-medium" style="color:var(--ink)">${esc(d.medNome)}</span>
+                        <span class="text-xs" style="color:var(--text-secondary)"> · ${esc(d.medDose)}</span>
+                        ${d.imported ? ' <span class="text-xs" style="opacity:.5">(importado)</span>' : ''}
+                        ${d.nota ? `<p class="text-xs italic" style="color:var(--text-secondary)">— ${esc(d.nota)}</p>` : ''}
+                    </div>
+                </div>`;
+            });
+            html += `</div></div>`;
+        });
+        html += `</div>`;
+        container.innerHTML = html;
     }
 
     function renderPesos() {
@@ -1835,6 +2014,9 @@
                 freqHoras: numOr(m.freqHoras, 24), diasTotais: Math.max(1, numOr(m.diasTotais, 1)),
                 dataInicio: str(m.dataInicio, 40) || new Date().toISOString(),
                 active: m.active !== false, alert: m.alert !== false,
+                interrompido: !!m.interrompido,
+                motivoInterrupcao: str(m.motivoInterrupcao, 300),
+                dataInterrupcao: m.dataInterrupcao ? str(m.dataInterrupcao, 40) : null,
                 doses: arr(m.doses).map(d => ({ ts: str(d.ts, 40), nota: str(d.nota, 200), imported: !!d.imported, cloudId: cid(d) })).filter(d => d.ts),
                 dosesTomadas: arr(m.doses).length
             })),
@@ -1937,8 +2119,23 @@
                     const dosesLog = (m.doses && m.doses.length)
                         ? `<div style="font-size: 12px; color: #555; margin-top: 4px;"><strong>Doses ministradas (${m.doses.length}/${info.totalDoses}):</strong><br>${m.doses.map(d => formatDateTimeBR(d.ts) + (d.imported ? ' (importado)' : '') + (d.nota ? ' — ' + esc(d.nota) : '')).join('<br>')}</div>`
                         : '<div style="font-size: 12px; color: #999; margin-top: 4px;">Nenhuma dose registrada.</div>';
-                    return `<li style="margin-bottom: 12px;"><strong>${esc(m.nome)}</strong> (${esc(m.dose)}) - Duração: ${m.diasTotais} dias - Status: ${m.active ? 'Em andamento' : 'Concluído'}${dosesLog}</li>`;
+                    const st = getStatusTratamento(m);
+                    const statusTxt = st.key === 'ativo' ? 'Em andamento' : st.key === 'interrompido' ? 'Interrompido' : 'Concluído';
+                    const interTxt = st.key === 'interrompido'
+                        ? `<div style="font-size: 12px; color: #b8860b; margin-top: 2px;">Interrompido${m.dataInterrupcao ? ' em ' + formatDateBR(m.dataInterrupcao) : ''}${m.motivoInterrupcao ? ' — ' + esc(m.motivoInterrupcao) : ''}</div>`
+                        : '';
+                    return `<li style="margin-bottom: 12px;"><strong>${esc(m.nome)}</strong> (${esc(m.dose)}) - Duração: ${m.diasTotais} dias - Status: ${statusTxt}${interTxt}${dosesLog}</li>`;
                 }).join('') || '<li>Nenhum tratamento registrado</li>'}
+            </ul>
+
+            <h3 style="border-bottom: 2px solid #0071E3; padding-bottom: 5px; margin-top: 20px;">Histórico de Doses Ministradas</h3>
+            <ul style="padding-left: 20px;">
+                ${(function(){
+                    const todas = [];
+                    (appData.medicamentos || []).forEach(m => (m.doses || []).forEach(d => { if (d.ts) todas.push({ nome: m.nome, dose: m.dose, ts: d.ts, nota: d.nota, imported: d.imported }); }));
+                    todas.sort((a,b) => new Date(b.ts) - new Date(a.ts));
+                    return todas.map(d => `<li style="margin-bottom: 4px; font-size: 13px;"><strong>${formatDateTimeBR(d.ts)}</strong> — ${esc(d.nome)} (${esc(d.dose)})${d.imported ? ' <em>(importado)</em>' : ''}${d.nota ? ' — ' + esc(d.nota) : ''}</li>`).join('') || '<li>Nenhuma dose ministrada</li>';
+                })()}
             </ul>
         `;
         
@@ -2113,7 +2310,10 @@
                     pet_id: pet.id, nome: m.nome, dose: m.dose,
                     freq_horas: m.freqHoras, dias_totais: m.diasTotais,
                     data_inicio: m.dataInicio || new Date().toISOString(),
-                    active: !!m.active, alert: !!m.alert
+                    active: !!m.active, alert: !!m.alert,
+                    interrompido: !!m.interrompido,
+                    motivo_interrupcao: m.motivoInterrupcao || null,
+                    data_interrupcao: m.dataInterrupcao || null
                 });
                 for (const d of (m.doses || [])) {
                     await upsertItem('doses', d, { medicamento_id: medId, ts: d.ts, nota: d.nota || null, imported: !!d.imported });

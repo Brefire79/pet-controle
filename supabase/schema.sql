@@ -47,6 +47,9 @@ create table if not exists public.medicamentos (
   data_inicio  timestamptz not null default now(),
   active       boolean not null default true,
   alert        boolean not null default true,
+  interrompido boolean not null default false,        -- tratamento parado antes do fim
+  motivo_interrupcao text,                             -- ex: Orientação do veterinário
+  data_interrupcao   timestamptz,                      -- quando foi interrompido
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );

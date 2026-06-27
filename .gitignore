@@ -14,3 +14,6 @@ desktop.ini
 # Dependências (caso entrem no futuro via Capacitor/Netlify)
 node_modules/
 dist/
+
+# Local Netlify folder
+.netlify
