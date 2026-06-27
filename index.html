@@ -634,7 +634,7 @@
                 <span id="conta-email" class="text-sm text-gray-700 truncate"></span>
             </div>
             <button type="button" onclick="enviarParaNuvem()" class="w-full bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-100 transition flex justify-center items-center gap-2 mb-2">
-                <i data-lucide="cloud-upload" class="w-4 h-4"></i> Enviar dados deste aparelho para a nuvem
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sincronizar este aparelho com a nuvem
             </button>
             <button type="button" onclick="logout()" class="w-full bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-red-100 transition flex justify-center items-center gap-2">
                 <i data-lucide="log-out" class="w-4 h-4"></i> Sair
@@ -1728,26 +1728,76 @@
         showToast("Backup baixado com sucesso!");
     }
 
+    // Sanitiza um backup importado: aceita só os campos esperados, com tipos corretos,
+    // ignorando qualquer chave extra (defesa contra JSON malicioso/corrompido).
+    function sanitizarBackup(raw) {
+        if (!raw || typeof raw !== 'object' || typeof raw.perfil !== 'object' || raw.perfil === null) return null;
+        const str = (v, max = 500) => (v === null || v === undefined) ? '' : String(v).slice(0, max);
+        const numOr = (v, def) => { const n = Number(typeof v === 'string' ? v.replace(',', '.') : v); return isNaN(n) ? def : n; };
+        const arr = v => Array.isArray(v) ? v : [];
+        const idOf = v => Number.isFinite(v) ? v : Date.now() + Math.floor(Math.random() * 1000);
+        const cid = o => (typeof o.cloudId === 'string' && o.cloudId) ? o.cloudId : undefined;
+
+        const clean = {
+            perfil: {
+                nome: str(raw.perfil.nome, 120),
+                raca: str(raw.perfil.raca, 120),
+                nascimento: str(raw.perfil.nascimento, 30),
+                castracao: str(raw.perfil.castracao, 30)
+            },
+            medicamentos: arr(raw.medicamentos).map(m => ({
+                id: idOf(m.id), cloudId: cid(m),
+                nome: str(m.nome, 120), dose: str(m.dose, 60),
+                freqHoras: numOr(m.freqHoras, 24), diasTotais: Math.max(1, numOr(m.diasTotais, 1)),
+                dataInicio: str(m.dataInicio, 40) || new Date().toISOString(),
+                active: m.active !== false, alert: m.alert !== false,
+                doses: arr(m.doses).map(d => ({ ts: str(d.ts, 40), nota: str(d.nota, 200), imported: !!d.imported, cloudId: cid(d) })).filter(d => d.ts),
+                dosesTomadas: arr(m.doses).length
+            })),
+            vacinas: arr(raw.vacinas).map(v => ({
+                id: idOf(v.id), cloudId: cid(v),
+                nome: str(v.nome, 120), dataAplicacao: str(v.dataAplicacao, 30),
+                dataReforco: v.dataReforco ? str(v.dataReforco, 30) : null, veterinario: str(v.veterinario, 120)
+            })),
+            registros: arr(raw.registros).map(r => ({
+                id: idOf(r.id), cloudId: cid(r),
+                tipo: str(r.tipo, 60), desc: str(r.desc, 2000), data: str(r.data, 40) || new Date().toISOString()
+            })),
+            pesos: arr(raw.pesos).map(p => ({ id: idOf(p.id), cloudId: cid(p), valor: numOr(p.valor, 0), data: str(p.data, 40) || new Date().toISOString() })),
+            alimentacao: arr(raw.alimentacao).map(a => ({ id: idOf(a.id), cloudId: cid(a), nome: str(a.nome, 120), quantidade: str(a.quantidade, 60), data: str(a.data, 40) || new Date().toISOString() }))
+        };
+        return clean;
+    }
+
     function importJSON(event) {
         const file = event.target.files[0];
         if (!file) return;
-        
+
         const reader = new FileReader();
         reader.onload = function(e) {
+            let parsed;
             try {
-                const importedData = JSON.parse(e.target.result);
-                // Validação básica do arquivo JSON
-                if (importedData && importedData.perfil) {
-                    appData = importedData;
-                    saveData();
-                    showToast("Dados restaurados! Atualizando...");
-                    setTimeout(() => window.location.reload(), 1500);
-                } else {
-                    alert("Arquivo de backup inválido ou corrompido.");
-                }
+                parsed = JSON.parse(e.target.result);
             } catch (err) {
-                alert("Erro ao ler o arquivo JSON.");
+                alert("Erro ao ler o arquivo: não é um JSON válido.");
+                event.target.value = '';
+                return;
             }
+            const limpo = sanitizarBackup(parsed);
+            if (!limpo) {
+                alert("Arquivo de backup inválido: estrutura não reconhecida.");
+                event.target.value = '';
+                return;
+            }
+            const resumo = `${limpo.medicamentos.length} tratamento(s), ${limpo.vacinas.length} vacina(s), ${limpo.registros.length} registro(s), ${limpo.pesos.length} peso(s).`;
+            if (!confirm(`Restaurar este backup vai SUBSTITUIR todos os dados atuais deste aparelho por:\n\n${resumo}\n\nEsta ação não pode ser desfeita. Continuar?`)) {
+                event.target.value = '';
+                return;
+            }
+            appData = limpo;
+            saveData();
+            showToast("Dados restaurados! Atualizando...");
+            setTimeout(() => window.location.reload(), 1500);
         };
         reader.readAsText(file);
     }
@@ -1935,63 +1985,76 @@
         location.reload();
     };
 
-    // Envia os dados deste aparelho (appData) para a conta na nuvem.
-    async function migrarLocalParaSupabase(user) {
+    // Sincroniza este aparelho com a nuvem de forma IDEMPOTENTE: faz upsert por
+    // cloudId (uuid) guardado localmente em cada item. Rodar de novo NÃO duplica —
+    // atualiza o que já existe e insere só o que é novo. Base do offline-first do PRD.
+    async function sincronizarComNuvem(user) {
+        // upsert genérico: usa o cloudId do objeto se houver (update), senão insere
+        // e grava o uuid retornado de volta no objeto local.
+        const upsertItem = async (tabela, obj, payload) => {
+            if (obj.cloudId) payload.id = obj.cloudId;
+            const { data, error } = await sb.from(tabela).upsert(payload).select('id').single();
+            if (error) throw error;
+            obj.cloudId = data.id;
+            return data.id;
+        };
+
         try {
             const p = appData.perfil || {};
-            const { data: pet, error: e1 } = await sb.from('pets').insert({
+            const petPayload = {
                 owner_id: user.id,
                 nome: p.nome || 'Meu Pet',
                 especie_raca: p.raca || null,
                 nascimento: p.nascimento || null,
                 castracao: p.castracao || null
-            }).select().single();
+            };
+            if (appData.cloudPetId) petPayload.id = appData.cloudPetId;
+            const { data: pet, error: e1 } = await sb.from('pets').upsert(petPayload).select('id').single();
             if (e1) throw e1;
+            appData.cloudPetId = pet.id;
 
             for (const m of (appData.medicamentos || [])) {
-                const { data: med, error: e2 } = await sb.from('medicamentos').insert({
+                const medId = await upsertItem('medicamentos', m, {
                     pet_id: pet.id, nome: m.nome, dose: m.dose,
                     freq_horas: m.freqHoras, dias_totais: m.diasTotais,
                     data_inicio: m.dataInicio || new Date().toISOString(),
                     active: !!m.active, alert: !!m.alert
-                }).select().single();
-                if (e2) throw e2;
-                const doses = (m.doses || []).map(d => ({
-                    medicamento_id: med.id, ts: d.ts, nota: d.nota || null, imported: !!d.imported
-                }));
-                if (doses.length) { const { error: e3 } = await sb.from('doses').insert(doses); if (e3) throw e3; }
+                });
+                for (const d of (m.doses || [])) {
+                    await upsertItem('doses', d, { medicamento_id: medId, ts: d.ts, nota: d.nota || null, imported: !!d.imported });
+                }
+            }
+            for (const v of (appData.vacinas || [])) {
+                await upsertItem('vacinas', v, { pet_id: pet.id, nome: v.nome, data_aplicacao: v.dataAplicacao, data_reforco: v.dataReforco || null, veterinario: v.veterinario || null });
+            }
+            for (const r of (appData.registros || [])) {
+                await upsertItem('registros', r, { pet_id: pet.id, tipo: r.tipo, descricao: r.desc, data: (r.data || new Date().toISOString()).split('T')[0] });
+            }
+            for (const x of (appData.pesos || [])) {
+                await upsertItem('pesos', x, { pet_id: pet.id, valor: x.valor, data: x.data });
+            }
+            for (const a of (appData.alimentacao || [])) {
+                await upsertItem('alimentacao', a, { pet_id: pet.id, nome: a.nome, quantidade: a.quantidade, data: a.data });
             }
 
-            const vac = (appData.vacinas || []).map(v => ({
-                pet_id: pet.id, nome: v.nome, data_aplicacao: v.dataAplicacao,
-                data_reforco: v.dataReforco || null, veterinario: v.veterinario || null
-            }));
-            if (vac.length) { const { error } = await sb.from('vacinas').insert(vac); if (error) throw error; }
-
-            const reg = (appData.registros || []).map(r => ({
-                pet_id: pet.id, tipo: r.tipo, descricao: r.desc,
-                data: (r.data || new Date().toISOString()).split('T')[0]
-            }));
-            if (reg.length) { const { error } = await sb.from('registros').insert(reg); if (error) throw error; }
-
-            const pes = (appData.pesos || []).map(x => ({ pet_id: pet.id, valor: x.valor, data: x.data }));
-            if (pes.length) { const { error } = await sb.from('pesos').insert(pes); if (error) throw error; }
-
-            const ali = (appData.alimentacao || []).map(a => ({ pet_id: pet.id, nome: a.nome, quantidade: a.quantidade, data: a.data }));
-            if (ali.length) { const { error } = await sb.from('alimentacao').insert(ali); if (error) throw error; }
-
+            saveData(); // persiste os cloudId mapeados → próxima sync continua idempotente
             return { ok: true, petId: pet.id };
         } catch (err) {
+            saveData(); // guarda os cloudId já obtidos, mesmo em falha parcial (não reduplica no retry)
             return { ok: false, erro: err.message || String(err) };
         }
     }
 
     window.enviarParaNuvem = async function() {
         if (!cloudAtivo || !usuarioAtual) return;
-        if (!confirm('Enviar os dados deste aparelho para sua conta na nuvem?')) return;
-        showToast('Enviando para a nuvem...');
-        const r = await migrarLocalParaSupabase(usuarioAtual);
-        showToast(r.ok ? 'Dados enviados para a nuvem!' : ('Falha ao enviar: ' + r.erro));
+        const jaSincronizou = !!appData.cloudPetId;
+        const msg = jaSincronizou
+            ? 'Sincronizar este aparelho com sua conta na nuvem? Itens já enviados serão atualizados (sem duplicar).'
+            : 'Enviar os dados deste aparelho para sua conta na nuvem?';
+        if (!confirm(msg)) return;
+        showToast(jaSincronizou ? 'Sincronizando...' : 'Enviando para a nuvem...');
+        const r = await sincronizarComNuvem(usuarioAtual);
+        showToast(r.ok ? 'Dados sincronizados com a nuvem!' : ('Falha ao sincronizar: ' + r.erro));
     };
 
     function atualizarUIConta() {
